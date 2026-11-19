@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>About Tofa</title>
+  <title>关于 TOFA</title>
   <link rel="stylesheet" href="assets/css/tokens.css">
   <link rel="stylesheet" href="assets/css/styles.css">
   <link rel="stylesheet" href="assets/css/app.css">
@@ -140,47 +140,17 @@
     </svg>
     <h1 id="about-title" class="about__title">Tofa</h1>
 
-    <dl class="about__versions" aria-label="Version information">
-      <dt>App</dt><dd id="app-version">…</dd>
-      <dt>Core</dt><dd id="core-version">…</dd>
+    <dl class="about__versions" aria-label="版本信息">
+      <dt>应用</dt><dd id="app-version">…</dd>
+      <dt>核心</dt><dd id="core-version">…</dd>
     </dl>
 
-    <p id="status" class="about__status" role="status" aria-live="polite"></p>
-
-    <div class="about__actions">
-      <button id="btn-check" class="about__btn about__btn--primary" type="button">Check for updates</button>
-      <button id="btn-download" class="about__btn" type="button" hidden>Download</button>
-    </div>
+    <p class="about__status">简体中文版不使用上游自动更新。</p>
   </main>
 
   <script>
     const { invoke } = window.__TAURI__.core;
-    const { listen } = window.__TAURI__.event;
-
     const el = (id) => document.getElementById(id);
-    const statusEl = el('status');
-    const btnCheck = el('btn-check');
-    const btnDownload = el('btn-download');
-    let latestVersion = null;
-
-    function setStatus(text, kind) {
-      statusEl.textContent = text || '';
-      statusEl.className = 'about__status' + (kind ? ' about__status--' + kind : '');
-    }
-
-    function applyResult(r) {
-      if (!r) return;
-      if (r.available && r.latest) {
-        setStatus('Update available: v' + r.latest, 'success');
-        latestVersion = r.latest;
-        btnDownload.textContent = 'Download v' + r.latest;
-        btnDownload.hidden = false;
-      } else {
-        setStatus("You're up to date.", '');
-        latestVersion = null;
-        btnDownload.hidden = true;
-      }
-    }
 
     async function loadVersions() {
       try {
@@ -193,60 +163,7 @@
       }
     }
 
-    async function runCheck() {
-      btnCheck.disabled = true;
-      setStatus('Checking…');
-      try {
-        const r = await invoke('check_for_updates');
-        applyResult(r);
-      } catch (e) {
-        setStatus(String(e), 'error');
-      } finally {
-        btnCheck.disabled = false;
-      }
-    }
-
-    async function runDownload() {
-      if (!latestVersion) return;
-      btnCheck.disabled = true;
-      btnDownload.disabled = true;
-      setStatus('Downloading update…');
-      try {
-        await invoke('download_and_install');
-        // App will restart on success; this line is unreachable in practice.
-      } catch (e) {
-        setStatus(String(e), 'error');
-        btnCheck.disabled = false;
-        btnDownload.disabled = false;
-      }
-    }
-
-    btnCheck.addEventListener('click', runCheck);
-    btnDownload.addEventListener('click', runDownload);
-
-    // Tray menu's "Update available" item opens this window and fires this
-    // event so the user lands here mid-download rather than on a closed menu.
-    listen('trigger-download', async () => {
-      if (!latestVersion) {
-        await runCheck();
-      }
-      runDownload();
-    });
-
-    async function maybeAutoDownload() {
-      try {
-        const pending = await invoke('take_pending_download');
-        if (pending) {
-          if (!latestVersion) {
-            await runCheck();
-          }
-          runDownload();
-        }
-      } catch (_) { /* missing in older builds — ignore */ }
-    }
-
     loadVersions();
-    maybeAutoDownload();
   </script>
 </body>
 </html>

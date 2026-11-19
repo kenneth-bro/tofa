@@ -1,3 +1,10 @@
+## 简体中文版
+
+[GitHub Actions 构建](https://github.com/kenneth-bro/tofa/actions/workflows/build-cn.yml)
+提供 Apple 芯片 Mac 的 DMG、CLI 压缩包和 SHA-256 校验文件。
+桌面界面默认简体中文；CLI 命令和输出保持与上游兼容。
+此构建不使用上游自动更新，未做 Apple 开发者签名和公证。
+
 <div align="center">
   <img src="tofa-app/src-tauri/icons/128x128@2x.png" width="96" alt="TOFA" />
   <h1>TOFA</h1>

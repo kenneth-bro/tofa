@@ -261,7 +261,7 @@ pub async fn pick_and_import_file(
             handle
                 .dialog()
                 .file()
-                .set_title("Open QR images or import files")
+                .set_title("打开二维码图片或导入文件")
                 .add_filter(
                     "Supported files",
                     &[
@@ -353,7 +353,7 @@ pub async fn pick_vault_folder(window: tauri::Window) -> Result<Option<String>, 
         let folder = handle
             .dialog()
             .file()
-            .set_title("Select vault folder")
+            .set_title("选择保险库文件夹")
             .blocking_pick_folder();
         Ok(folder.map(|p| p.to_string()))
     })
@@ -459,10 +459,10 @@ pub async fn scan_screen(
         let _ = win.show();
         let _ = win.set_focus();
     }
-    let _ = app.emit("scan-step", "Reading screenshot…");
+    let _ = app.emit("scan-step", "正在读取截屏…");
 
     // 4. Decode QR codes from screenshot
-    let _ = app.emit("scan-step", "Detecting QR codes…");
+    let _ = app.emit("scan-step", "正在识别二维码…");
     let uris = tofa_core::qr::scan_all_qr_uris(&tmp)
         .map_err(|_| "No QR code found on screen.".to_string());
     let _ = std::fs::remove_file(&tmp);
@@ -500,7 +500,7 @@ pub async fn scan_screen(
             }
         }
 
-        let _ = app_handle.emit("scan-step", "Saving to vault…");
+        let _ = app_handle.emit("scan-step", "正在保存到保险库…");
         vault
             .save(&vault_path, &passphrase)
             .map_err(|e| e.to_string())?;
@@ -930,9 +930,9 @@ pub async fn save_uri_list(
         handle
             .dialog()
             .file()
-            .set_title("Save URI list")
+            .set_title("保存 URI 列表")
             .set_file_name(format!("tofa-export-{date}.txt"))
-            .add_filter("Text file", &["txt"])
+            .add_filter("文本文件", &["txt"])
             .blocking_save_file()
     })
     .await
@@ -958,9 +958,9 @@ pub async fn save_qr_zip(window: tauri::Window, items: Vec<QrZipItem>) -> Result
         handle
             .dialog()
             .file()
-            .set_title("Save QR Codes")
+            .set_title("保存二维码压缩包")
             .set_file_name("tofa-qrs.zip")
-            .add_filter("Zip archive", &["zip"])
+            .add_filter("ZIP 压缩包", &["zip"])
             .blocking_save_file()
     })
     .await
@@ -1112,49 +1112,6 @@ pub fn get_versions() -> Versions {
     }
 }
 
-#[derive(serde::Serialize, Clone)]
-pub struct UpdateInfo {
-    pub current: String,
-    pub latest: Option<String>,
-    pub available: bool,
-}
-
-#[tauri::command]
-pub async fn check_for_updates(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let current = env!("CARGO_PKG_VERSION").to_string();
-    match app.updater().map_err(|e| e.to_string())?.check().await {
-        Ok(Some(update)) => Ok(UpdateInfo {
-            current,
-            latest: Some(update.version.clone()),
-            available: true,
-        }),
-        Ok(None) => Ok(UpdateInfo {
-            current,
-            latest: None,
-            available: false,
-        }),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub async fn download_and_install(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let update = app
-        .updater()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "no update available".to_string())?;
-    update
-        .download_and_install(|_chunk, _total| {}, || {})
-        .await
-        .map_err(|e| e.to_string())?;
-    app.restart();
-}
-
 /// Save a base64-encoded PNG to a user-chosen location via native save dialog.
 #[tauri::command]
 pub async fn save_qr_png(
@@ -1174,9 +1131,9 @@ pub async fn save_qr_png(
         handle
             .dialog()
             .file()
-            .set_title("Save QR Code")
+            .set_title("保存二维码")
             .set_file_name(&filename)
-            .add_filter("PNG image", &["png"])
+            .add_filter("PNG 图片", &["png"])
             .blocking_save_file()
     })
     .await
@@ -1188,18 +1145,6 @@ pub async fn save_qr_png(
     };
 
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())
-}
-
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// Whether a tray click requested a download. Read once + cleared by
-/// `take_pending_download` from the About window JS on load.
-#[derive(Default)]
-pub struct PendingDownload(pub AtomicBool);
-
-#[tauri::command]
-pub fn take_pending_download(state: tauri::State<'_, PendingDownload>) -> bool {
-    state.0.swap(false, Ordering::Relaxed)
 }
 
 #[cfg(test)]

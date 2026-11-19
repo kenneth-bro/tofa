@@ -3,14 +3,16 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Tofa</string>
+  <string>Tofa CN</string>
   <key>CFBundleDisplayName</key>
-  <string>Tofa</string>
+  <string>Tofa CN</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh_CN</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSCameraUsageDescription</key>
-  <string>TOFA uses the camera to scan QR codes for adding OTP accounts.</string>
+  <string>TOFA 使用摄像头扫描二维码以添加验证码账号。</string>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>TOFA scans the screen to detect QR codes for adding OTP accounts.</string>
+  <string>TOFA 扫描屏幕上的二维码以添加验证码账号。</string>
 </dict>
 </plist>

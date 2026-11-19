@@ -29,7 +29,6 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tokio = { version = "1", features = ["rt", "macros", "time"] }
-tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

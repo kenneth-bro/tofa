@@ -1,0 +1,35 @@
+name: Build Tofa CN for macOS
+
+on:
+  push:
+    branches: [zh-cn]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tofa-cn-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: github.repository == 'kenneth-bro/tofa'
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install tauri-cli --version 2.10.1 --locked
+      - name: Check and test
+        run: |
+          node --check tofa-app/src-tauri/ui/js/app.js
+          cargo fmt --check --all
+          cargo test --locked --workspace
+      - name: Build and verify macOS packages
+        run: bash scripts/package-macos-cn.sh "$RUNNER_TEMP/tofa-cn"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tofa-cn-macos-arm64
+          path: ${{ runner.temp }}/tofa-cn/
+          if-no-files-found: error

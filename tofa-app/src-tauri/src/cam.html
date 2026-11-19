@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>tofa — scan QR</title>
+<title>TOFA 扫描二维码</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -88,8 +88,8 @@
     </div>
   </div>
 </div>
-<p id="status">Starting camera…</p>
-<p id="hint">Point a QR code at the square above</p>
+<p id="status">正在开启摄像头…</p>
+<p id="hint">请将二维码对准取景框</p>
 
 <script>
 const video  = document.getElementById('video');
@@ -104,10 +104,10 @@ async function start() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     video.srcObject = stream;
     await video.play();
-    setStatus('', 'Scanning for QR code…', 'Point it at the square');
+    setStatus('', '正在查找二维码…', '请对准取景框');
     tick();
   } catch(e) {
-    setStatus('err', 'Camera access denied — allow it in your browser', '');
+    setStatus('err', '无法访问摄像头，请允许浏览器使用摄像头', '');
   }
 }
 
@@ -119,7 +119,7 @@ function tick() {
       if (codes.length > 0) {
         onFound(codes[0].rawValue);
       } else {
-        setStatus('', 'Scanning…', 'Keep steady · ensure good lighting');
+        setStatus('', '扫描中…', '请保持稳定并确保光线充足');
         steadyCount = 0;
       }
       requestAnimationFrame(tick);
@@ -144,7 +144,7 @@ function tick() {
     if (code) {
       onFound(code.data);
     } else {
-      setStatus('', 'Scanning…', 'Keep steady · ensure good lighting');
+      setStatus('', '扫描中…', '请保持稳定并确保光线充足');
       steadyCount = 0;
       requestAnimationFrame(tick);
     }
@@ -155,18 +155,18 @@ function onFound(value) {
   if (sent) return;
   steadyCount++;
   if (steadyCount < 3) {
-    setStatus('warn', 'QR detected — hold steady…', 'Keep it still for a moment');
+    setStatus('warn', '已识别二维码，请保持稳定…', '请稍候');
     requestAnimationFrame(tick);
     return;
   }
   sent = true;
-  setStatus('ok', 'Got it! Adding to vault…', '');
+  setStatus('ok', '正在添加到保险库…', '');
   fetch('/result', { method: 'POST', body: value })
     .then(() => {
-      document.body.innerHTML = `<div id="done"><div id="check">✓</div><p>Added to vault</p></div>`;
+      document.body.innerHTML = `<div id="done"><div id="check">✓</div><p>已添加到保险库</p></div>`;
       setTimeout(() => window.close(), 2000);
     })
-    .catch(() => setStatus('err', 'Could not send to tofa', ''));
+    .catch(() => setStatus('err', '无法将扫描结果发送给 TOFA', ''));
 }
 
 function setStatus(cls, msg, h) {

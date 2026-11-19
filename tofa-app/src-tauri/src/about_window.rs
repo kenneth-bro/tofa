@@ -1,4 +1,4 @@
-//! Singleton "About Tofa" window. Shown from the tray menu's "About Tofa"
+//! Singleton "关于 TOFA" window. Shown from the tray menu's "关于 TOFA"
 //! item. Hosts the `about.html` page from the bundled frontend.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -13,7 +13,7 @@ pub fn show_or_focus(app: &AppHandle) {
         return;
     }
     let _ = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("about.html".into()))
-        .title("About Tofa")
+        .title("关于 TOFA")
         .inner_size(320.0, 400.0)
         .resizable(false)
         .minimizable(false)

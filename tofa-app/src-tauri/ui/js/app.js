@@ -1,6 +1,12 @@
 /* global OTP, IssuerIcons */
 'use strict';
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
 // Render the icon HTML for an entry: brand SVG when we have one, otherwise
 // the legacy initial-letter circle. Returns a string (innerHTML-friendly).
 function entryIconHTML(entry) {
@@ -12,7 +18,7 @@ function entryIconHTML(entry) {
     return `<svg class="account-icon-svg" viewBox="0 0 24 24" style="color:${icon.color}" aria-hidden="true"><use href="#${icon.id}"/></svg>`;
   }
   const initial = (issuer || '?')[0].toUpperCase();
-  return `<div class="account-icon">${initial}</div>`;
+  return `<div class="account-icon">${escapeHtml(initial)}</div>`;
 }
 
 const { invoke } = window.__TAURI__.core;
@@ -140,7 +146,7 @@ async function init() {
   }
   const exists = await invoke('vault_exists');
   $('confirm-wrap').style.display = exists ? 'none' : 'block';
-  $('btn-unlock-submit').textContent = exists ? 'Unlock' : 'Create vault';
+  $('btn-unlock-submit').textContent = exists ? '解锁' : '创建保险库';
   showView('view-locked');
   $('input-passphrase').focus();
 }
@@ -167,13 +173,13 @@ function applyFilter(query) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     if (q) {
-      empty.innerHTML = `<p class="empty-state-title">No results</p><p class="empty-state-sub">No accounts match "<em>${q}</em>"</p>`;
+      empty.innerHTML = `<p class="empty-state-title">无匹配结果</p><p class="empty-state-sub">没有匹配的账号：<em>${escapeHtml(q)}</em></p>`;
     } else {
       empty.innerHTML = `
         <svg width="40" height="40" style="color:var(--text-muted);margin-bottom:var(--s-3)" viewBox="0 0 128 128"><use href="#tofa-wink"/></svg>
-        <p class="empty-state-title">No accounts yet</p>
-        <p class="empty-state-sub">Add your first TOTP account to get started</p>
-        <button class="btn btn-primary empty-state-btn" id="empty-state-add">Add account</button>`;
+        <p class="empty-state-title">暂无账号</p>
+        <p class="empty-state-sub">添加一个 TOTP 账号</p>
+        <button class="btn btn-primary empty-state-btn" id="empty-state-add">添加账号</button>`;
     }
     list.appendChild(empty);
     if (!q) {
@@ -194,15 +200,15 @@ function applyFilter(query) {
     item.innerHTML = `
       ${entryIconHTML(entry)}
       <div style="flex:1;min-width:0;overflow:hidden;">
-        <div class="account-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${entry.issuer || entry.name}</div>
-        <div class="account-login" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${entry.account}</div>
+        <div class="account-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(entry.issuer || entry.name)}</div>
+        <div class="account-login" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(entry.account)}</div>
       </div>
       <div style="display:flex;align-items:center;gap:var(--s-2);flex-shrink:0;padding-left:var(--s-2);">
-        <div class="item-code-col" style="text-align:right;cursor:pointer;" title="Click to copy">
+        <div class="item-code-col" style="text-align:right;cursor:pointer;" title="点击复制验证码">
           <div style="font-family:var(--font-mono);font-weight:700;font-size:14px;letter-spacing:0.08em;color:${timerColor}">${entry.code}</div>
           <div style="font-family:var(--font-mono);font-size:10px;color:${timerColor}" data-timer="${entry.id}">${secs}s</div>
         </div>
-        <button class="btn btn-ghost btn-copy-item" data-id="${entry.id}" style="padding:4px 6px;font-size:14px;flex-shrink:0;" title="Copy code">⎘</button>
+        <button class="btn btn-ghost btn-copy-item" data-id="${entry.id}" style="padding:4px 6px;font-size:14px;flex-shrink:0;" title="复制验证码">⎘</button>
       </div>`;
     item.addEventListener('click', e => {
       if (e.target.closest('.btn-copy-item') || e.target.closest('.item-code-col')) return;
@@ -212,14 +218,14 @@ function applyFilter(query) {
       e.stopPropagation();
       try {
         await invoke('copy_code', { id: entry.id });
-        toast('Copied!');
+        toast('已复制');
       } catch (err) { toast(String(err), true); }
     });
     item.querySelector('.item-code-col').addEventListener('click', async e => {
       e.stopPropagation();
       try {
         await invoke('copy_code', { id: entry.id });
-        toast('Copied!');
+        toast('已复制');
       } catch (err) { toast(String(err), true); }
     });
     list.appendChild(item);
@@ -280,7 +286,7 @@ function tick() {
     if (entry) {
       const period = entry.period || 30;
       const s = OTP.secondsRemaining(period);
-      $('detail-seconds').textContent = `${s}s remaining`;
+      $('detail-seconds').textContent = `${s} 秒后刷新`;
       const bar = $('detail-progress-bar');
       bar.style.setProperty('--progress', `${(s / period) * 100}%`);
       bar.style.background = s < 5 ? 'var(--danger)' : s < 10 ? 'var(--warning)' : 'var(--brand)';
@@ -321,21 +327,21 @@ function renderDetailMeta(entry) {
   // eye lands on plain metadata before the bullets).
   const rows = [
     ['ID',        entry.id || '—'],
-    ['Issuer',    entry.issuer  || '—'],
-    ['Account',   entry.account || '—'],
-    ['Algorithm', entry.algorithm || 'SHA1'],
-    ['Digits',    String(entry.digits || 6)],
-    ['Period',    `${entry.period || 30}s`],
-    ['Added',     entry.created_at || '—'],
-    ['Secret',    null],
+    ['服务商',    entry.issuer  || '—'],
+    ['账号',   entry.account || '—'],
+    ['算法', entry.algorithm || 'SHA1'],
+    ['位数',    String(entry.digits || 6)],
+    ['周期',    `${entry.period || 30}s`],
+    ['添加时间',     entry.created_at || '—'],
+    ['密钥',    null],
     ['URI',       null],
   ];
   const tbody = $('detail-meta-body');
   tbody.innerHTML = '';
   rows.forEach(([label, value]) => {
     const tr = document.createElement('tr');
-    if (label === 'Secret') {
-      tr.innerHTML = `<td>${label}</td><td><span class="secret-masked" id="secret-cell" title="Click to reveal">●●●●●●●●●●●●●●●●</span></td>`;
+    if (label === '密钥') {
+      tr.innerHTML = `<td>${label}</td><td><span class="secret-masked" id="secret-cell" title="点击显示">●●●●●●●●●●●●●●●●</span></td>`;
       tbody.appendChild(tr);
       $('secret-cell').addEventListener('click', () => {
         $('reveal-passphrase').value = '';
@@ -351,11 +357,11 @@ function renderDetailMeta(entry) {
       tr.innerHTML = `<td>${label}</td>` +
         `<td><span class="secret-masked" id="uri-cell" ` +
         `style="word-break:break-all;font-family:var(--font-mono);font-size:11px;" ` +
-        `title="Click to reveal">Loading…</span></td>`;
+        `title="点击显示">加载中…</span></td>`;
       tbody.appendChild(tr);
       invoke('get_masked_uri', { id: entry.id })
         .then(uri => { $('uri-cell').textContent = uri; })
-        .catch(_ => { $('uri-cell').textContent = '(unavailable)'; });
+        .catch(_ => { $('uri-cell').textContent = '（不可用）'; });
       $('uri-cell').addEventListener('click', () => {
         $('reveal-passphrase').value = '';
         $('reveal-error').style.display = 'none';
@@ -363,7 +369,7 @@ function renderDetailMeta(entry) {
         $('reveal-passphrase').focus();
       });
     } else {
-      tr.innerHTML = `<td>${label}</td><td>${value}</td>`;
+      tr.innerHTML = `<td>${label}</td><td>${escapeHtml(value)}</td>`;
       tbody.appendChild(tr);
     }
   });
@@ -373,7 +379,7 @@ function updateDetailCode(entry) {
   $('detail-code').textContent = entry.code;
   const period = entry.period || 30;
   const secs = OTP.secondsRemaining(period);
-  $('detail-seconds').textContent = `${secs}s remaining`;
+  $('detail-seconds').textContent = `${secs} 秒后刷新`;
   const bar = $('detail-progress-bar');
   bar.style.setProperty('--progress', `${(secs / period) * 100}%`);
 }
@@ -418,41 +424,41 @@ async function openSettings(from) {
 
   wrap.innerHTML = `
     <div class="settings-section">
-      <span class="settings-section-label">Vault path</span>
+      <span class="settings-section-label">保险库路径</span>
       <div class="settings-row">
         <input id="settings-vault-path" class="input settings-path-input" placeholder="~/path/to/vault">
-        <button id="btn-browse-vault" class="btn btn-secondary settings-browse-btn">Browse…</button>
+        <button id="btn-browse-vault" class="btn btn-secondary settings-browse-btn">浏览…</button>
       </div>
     </div>
     <div class="settings-section">
-      <span class="settings-section-label">Appearance</span>
+      <span class="settings-section-label">外观</span>
       <div class="settings-segmented">
         <button class="settings-seg-btn${theme==='light'?' active':''}" data-theme-btn="light">
-          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-sun"/></svg>Light
+          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-sun"/></svg>浅色
         </button>
         <button class="settings-seg-btn${theme==='dark'?' active':''}" data-theme-btn="dark">
-          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-moon"/></svg>Dark
+          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-moon"/></svg>深色
         </button>
         <button class="settings-seg-btn${theme==='system'?' active':''}" data-theme-btn="system">
-          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-monitor"/></svg>Auto
+          <svg class="seg-icon" width="12" height="12" viewBox="0 0 24 24"><use href="#icon-monitor"/></svg>跟随系统
         </button>
       </div>
     </div>
     <div class="settings-section">
-      <span class="settings-section-label">Auto-lock after</span>
+      <span class="settings-section-label">自动锁定时间</span>
       <div class="settings-segmented settings-segmented-grid">
-        ${lockBtn('60', '1m')}
-        ${lockBtn('300', '5m')}
-        ${lockBtn('600', '10m')}
-        ${lockBtn('3600', '1h')}
-        ${lockBtn('86400', '24h')}
-        ${lockBtn('never', 'Never')}
+        ${lockBtn('60', '1 分钟')}
+        ${lockBtn('300', '5 分钟')}
+        ${lockBtn('600', '10 分钟')}
+        ${lockBtn('3600', '1 小时')}
+        ${lockBtn('86400', '24 小时')}
+        ${lockBtn('never', '从不')}
       </div>
       <p class="settings-hint" id="settings-lock-hint" style="display:${presetMatch==='never'?'block':'none'};">
-        Not recommended — your passphrase stays in memory until you lock or quit.
+        不推荐：锁定或退出前，口令会保留在内存中。
       </p>
     </div>
-    <button id="btn-settings-save" class="btn btn-primary settings-save-btn">Save</button>
+    <button id="btn-settings-save" class="btn btn-primary settings-save-btn">保存</button>
     <p id="settings-error" class="settings-error"></p>`;
 
   $('settings-vault-path').value = settings.vault_path;
@@ -498,7 +504,7 @@ async function openSettings(from) {
         },
       });
       document.documentElement.setAttribute('data-theme-pref', selectedTheme);
-      toast('Settings saved');
+      toast('设置已保存');
       showView('view-locked');
       init();
     } catch (err) {
@@ -519,7 +525,7 @@ function bindAddListeners() {
       const uri = $('input-uri').value.trim();
       const errEl = $('add-error');
       errEl.style.display = 'none';
-      if (!uri) { errEl.textContent = 'Enter an otpauth:// URI.'; errEl.style.display = ''; return; }
+      if (!uri) { errEl.textContent = '请输入 otpauth:// URI。'; errEl.style.display = ''; return; }
       loaderStart();
       try {
         const added = await invoke('add_from_uri', { uri, name: '' });
@@ -527,7 +533,7 @@ function bindAddListeners() {
         const data = await invoke('get_entries');
         renderList(data);
         showView('view-list');
-        toast(`Added: ${added.join(', ')}`);
+        toast(`已添加： ${added.join(', ')}`);
       } catch (err) {
         errEl.textContent = String(err);
         errEl.style.display = '';
@@ -539,18 +545,18 @@ function bindAddListeners() {
   if (btnScan) {
     btnScan.addEventListener('click', async () => {
       for (const n of [3, 2, 1]) {
-        toast(`Scanning in ${n}…`);
+        toast(`${n} 秒后开始扫描…`);
         await new Promise(r => setTimeout(r, 1000));
       }
       loaderStart();
-      showBlocking('Scanning screen for QR codes…');
+      showBlocking('正在扫描屏幕中的二维码…');
       try {
         const added = await withPopoverPinned(() => invoke('scan_screen'));
         const data = await invoke('get_entries');
         renderList(data);
         showView('view-list');
         startTick();
-        toast(`Added: ${added.join(', ')}`);
+        toast(`已添加： ${added.join(', ')}`);
       } catch (err) { toast(String(err), true); }
       finally { loaderDone(); hideBlocking(); }
     });
@@ -559,16 +565,16 @@ function bindAddListeners() {
   const btnCam = $('btn-scan-camera');
   if (btnCam) {
     btnCam.addEventListener('click', async () => {
-      toast('Opening camera in browser…');
+      toast('正在打开摄像头…');
       loaderStart();
-      showBlocking('Waiting for camera scan…');
+      showBlocking('等待摄像头扫描…');
       try {
         const added = await withPopoverPinned(() => invoke('scan_camera'));
         const data = await invoke('get_entries');
         renderList(data);
         showView('view-list');
         startTick();
-        toast(`Added: ${added.join(', ')}`);
+        toast(`已添加： ${added.join(', ')}`);
       } catch (err) { toast(String(err), true); }
       finally { loaderDone(); hideBlocking(); }
     });
@@ -578,7 +584,7 @@ function bindAddListeners() {
   if (btnFile) {
     btnFile.addEventListener('click', async () => {
       loaderStart();
-      showBlocking('Importing files…');
+      showBlocking('正在导入文件…');
       try {
         const added = await withPopoverPinned(() => invoke('pick_and_import_file'));
         if (added.length === 0) return;
@@ -586,11 +592,11 @@ function bindAddListeners() {
         renderList(data);
         showView('view-list');
         // Many-account imports get a count + first-few preview;
-        // single imports keep the original "Added: <name>" form.
+        // single imports keep the original "已添加： <name>" form.
         if (added.length <= 3) {
-          toast(`Added: ${added.join(', ')}`);
+          toast(`已添加： ${added.join(', ')}`);
         } else {
-          toast(`Added ${added.length} accounts (${added.slice(0, 3).join(', ')}, …)`);
+          toast(`已添加 ${added.length} 个账号 (${added.slice(0, 3).join(', ')}, …)`);
         }
       } catch (err) { toast(String(err), true); }
       finally { loaderDone(); hideBlocking(); }
@@ -620,10 +626,10 @@ $('form-unlock').addEventListener('submit', async e => {
   // Argon2id KDF in debug builds can run several seconds; without this
   // affordance the UI feels frozen.
   btn.disabled = true;
-  btn.textContent = vaultExists ? 'Unlocking…' : 'Creating…';
+  btn.textContent = vaultExists ? '正在解锁…' : '正在创建…';
   loaderStart();
   setLogoEye(true);
-  showBlocking(vaultExists ? 'Decrypting vault…' : 'Creating vault…');
+  showBlocking(vaultExists ? '正在解密保险库…' : '正在创建保险库…');
 
   try {
     let data;
@@ -632,7 +638,7 @@ $('form-unlock').addEventListener('submit', async e => {
     } else {
       const confirm = $('input-passphrase-confirm').value;
       if (passphrase !== confirm) {
-        errEl.textContent = 'Passphrases do not match.';
+        errEl.textContent = '两次输入的口令不一致。';
         errEl.style.visibility = 'visible';
         setLogoEye(false);
         return;
@@ -690,7 +696,7 @@ $('btn-detail-copy').addEventListener('click', async () => {
   if (!selectedId) return;
   try {
     await invoke('copy_code', { id: selectedId });
-    toast('Copied!');
+    toast('已复制');
   } catch (err) { toast(String(err), true); }
 });
 
@@ -698,13 +704,13 @@ $('btn-detail-copy-uri').addEventListener('click', async () => {
   if (!selectedId) return;
   try {
     await invoke('copy_uri', { id: selectedId });
-    toast('URI copied to clipboard');
+    toast('URI 已复制');
   } catch (err) { toast(String(err), true); }
 });
 
 $('btn-detail-del').addEventListener('click', async () => {
   if (!selectedId) return;
-  showBlocking('Deleting…');
+  showBlocking('正在删除…');
   loaderStart();
   try {
     await invoke('delete_entry', { id: selectedId });
@@ -712,7 +718,7 @@ $('btn-detail-del').addEventListener('click', async () => {
     const data = await invoke('get_entries');
     renderList(data);
     showView('view-list');
-    toast('Deleted');
+    toast('已删除');
   } catch (err) { toast(String(err), true); }
   finally {
     hideBlocking();
@@ -745,7 +751,7 @@ function showQrItem(idx) {
   const item = qrList[qrListIndex];
   $('qr-overlay-title').textContent = item.name;
   $('qr-overlay-img').src = item.data_uri;
-  $('qr-overlay-counter').textContent = `${qrListIndex + 1} of ${qrList.length}`;
+  $('qr-overlay-counter').textContent = `${qrListIndex + 1} / ${qrList.length}`;
 }
 
 function resetQrOverlayToSingle() {
@@ -793,15 +799,15 @@ $('btn-export-qr').addEventListener('click', () => {
     // selection and they should reach for "List of QRs" instead.
     const isNon30 = e.period && e.period !== 30;
     const badge = isNon30
-      ? `<span title="${e.period}s period — not compatible with the migration QR; use 'List of QRs' instead" style="font-family:var(--font-mono);font-size:10px;color:var(--warning);border:1px solid var(--warning);border-radius:var(--r-sm);padding:1px 5px;margin-left:var(--s-2);">${e.period}s</span>`
+      ? `<span title="${e.period} 秒周期与迁移二维码不兼容，请逐条导出" style="font-family:var(--font-mono);font-size:10px;color:var(--warning);border:1px solid var(--warning);border-radius:var(--r-sm);padding:1px 5px;margin-left:var(--s-2);">${e.period}s</span>`
       : '';
     const accountSpan = e.issuer
-      ? `<span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${e.account}</span>`
+      ? `<span style="font-size:11px;color:var(--text-muted);margin-left:auto;">${escapeHtml(e.account)}</span>`
       : '';
     return `
     <label style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-2);border-radius:var(--r-md);cursor:pointer;">
       <input type="checkbox" data-id="${e.id}" checked style="width:14px;height:14px;accent-color:var(--brand);">
-      <span style="font-size:13px;">${e.issuer || e.name}</span>
+      <span style="font-size:13px;">${escapeHtml(e.issuer || e.name)}</span>
       ${badge}
       ${accountSpan}
     </label>
@@ -817,13 +823,13 @@ $('btn-export-qr-back').addEventListener('click', () => {
 $('btn-export-qr-generate').addEventListener('click', async () => {
   const ids = [...$('export-qr-list').querySelectorAll('input[type=checkbox]:checked')]
     .map(cb => cb.dataset.id);
-  if (ids.length === 0) { toast('Select at least one account', true); return; }
+  if (ids.length === 0) { toast('请至少选择一个账号', true); return; }
   loaderStart();
   try {
     const dataUri = await invoke('generate_selection_qr', { ids });
     resetQrOverlayToSingle();
     $('export-qr-overlay').style.display = 'none';
-    $('qr-overlay-title').textContent = `${ids.length} account${ids.length > 1 ? 's' : ''}`;
+    $('qr-overlay-title').textContent = `${ids.length} 个账号`;
     $('qr-overlay-img').src = dataUri;
     $('qr-overlay').style.display = 'flex';
   } catch (err) { toast(String(err), true); }
@@ -833,7 +839,7 @@ $('btn-export-qr-generate').addEventListener('click', async () => {
 $('btn-export-qr-generate-multi').addEventListener('click', async () => {
   const ids = [...$('export-qr-list').querySelectorAll('input[type=checkbox]:checked')]
     .map(cb => cb.dataset.id);
-  if (ids.length === 0) { toast('Select at least one account', true); return; }
+  if (ids.length === 0) { toast('请至少选择一个账号', true); return; }
   loaderStart();
   try {
     const items = await invoke('generate_otpauth_list', { ids });
@@ -856,11 +862,11 @@ $('btn-export-qr-generate-multi').addEventListener('click', async () => {
 $('btn-export-uri-list').addEventListener('click', async () => {
   const ids = [...$('export-qr-list').querySelectorAll('input[type=checkbox]:checked')]
     .map(cb => cb.dataset.id);
-  if (ids.length === 0) { toast('Select at least one account', true); return; }
+  if (ids.length === 0) { toast('请至少选择一个账号', true); return; }
   try {
     await withPopoverPinned(() => invoke('save_uri_list', { ids }));
     $('export-qr-overlay').style.display = 'none';
-    toast(`Saved ${ids.length} URI${ids.length > 1 ? 's' : ''}`);
+    toast(`已保存 ${ids.length} 条 URI`);
   } catch (err) { toast(String(err), true); }
 });
 

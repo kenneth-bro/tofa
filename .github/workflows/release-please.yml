@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   release-please:
+    if: github.repository == 'stratif-io/tofa'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}

@@ -21,7 +21,7 @@ jobs:
   # ── CLI binaries ────────────────────────────────────────────────────────────
   build-cli:
     name: Build CLI (${{ matrix.target }})
-    if: startsWith(github.ref_name, 'v')
+    if: github.repository == 'stratif-io/tofa' && startsWith(github.ref_name, 'v')
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -99,7 +99,7 @@ jobs:
   # ── macOS app (universal DMG) ───────────────────────────────────────────────
   build-app:
     name: Build macOS App
-    if: startsWith(github.ref_name, 'tofa-macos-v') || startsWith(github.ref_name, 'v')
+    if: github.repository == 'stratif-io/tofa' && (startsWith(github.ref_name, 'tofa-macos-v') || startsWith(github.ref_name, 'v'))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -236,7 +236,7 @@ jobs:
           prerelease: ${{ !startsWith(github.ref_name, 'tofa-macos-v') }}
 
       - name: Dispatch Homebrew CLI formula update
-        if: startsWith(github.ref_name, 'v')
+        if: github.repository == 'stratif-io/tofa' && startsWith(github.ref_name, 'v')
         env:
           TAP_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
         run: |
@@ -284,7 +284,7 @@ jobs:
   # ── Post-release install.sh smoke test ─────────────────────────────────────
   release-install-test:
     name: Release install smoke test (${{ matrix.os }})
-    if: startsWith(github.ref_name, 'v')
+    if: github.repository == 'stratif-io/tofa' && startsWith(github.ref_name, 'v')
     needs: [release]
     runs-on: ${{ matrix.os }}
     strategy:

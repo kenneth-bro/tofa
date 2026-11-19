@@ -24,6 +24,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.repository == 'stratif-io/tofa'
     name: Build & push image
     runs-on: ubuntu-latest
     environment: OVH-PROD
