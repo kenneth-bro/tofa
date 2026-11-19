@@ -26,8 +26,11 @@ jobs:
           curl --fail --silent --show-error --location --retry 3 \
             -o "$zip" https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v2.10.1/cargo-tauri-aarch64-apple-darwin.zip
           printf '%s  %s\n' f89d7d9485d3a6a6bcbc88275b0bddea61fe582ca636fc02c286994af1f6e36b "$zip" | shasum -a 256 -c
-          unzip -o "$zip" cargo-tauri -d "$HOME/.cargo/bin"
-          cargo tauri --version
+          bin="$RUNNER_TEMP/tofa-tools"
+          mkdir -p "$bin"
+          unzip -o "$zip" cargo-tauri -d "$bin"
+          printf '%s\n' "$bin" >> "$GITHUB_PATH"
+          "$bin/cargo-tauri" --version
       - name: Check and test
         run: |
           node --check tofa-app/src-tauri/ui/js/app.js
