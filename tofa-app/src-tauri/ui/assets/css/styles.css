@@ -450,6 +450,15 @@ body {
   margin-bottom: var(--s-2);
 }
 .settings-row { display: flex; gap: var(--s-2); }
+.settings-login-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  font-size: 13px;
+  min-height: 28px;
+}
+.settings-login-row input { accent-color: var(--brand); flex-shrink: 0; }
 .settings-path-input { flex: 1; font-size: 12px; min-width: 0; }
 .settings-browse-btn { white-space: nowrap; font-size: 12px; flex-shrink: 0; }
 .settings-segmented {

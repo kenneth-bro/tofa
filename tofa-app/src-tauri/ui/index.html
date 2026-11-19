@@ -61,12 +61,6 @@
   <div class="app-header tray-header">
     <svg id="logo-header-list" class="logo-svg" width="32" height="32" style="color: var(--brand)"><use href="#tofa-wink"/></svg>
     <span class="tray-header-title">TOFA</span>
-    <button id="btn-settings" class="btn btn-ghost" style="margin-left:auto;padding:4px 8px;" title="设置">
-      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-      </svg>
-    </button>
   </div>
   <div style="padding:var(--s-2) var(--s-3) 0;">
     <input id="search-input" class="input" placeholder="搜索账号… ⌘K" style="font-size:12px;padding:7px 12px;">
@@ -88,9 +82,10 @@
         <path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 17h3"/>
       </svg>
     </button>
-    <button id="btn-lock" class="btn btn-ghost tray-footer-btn" title="锁定保险库">
+    <button id="btn-settings" class="btn btn-ghost tray-footer-btn" title="设置" aria-label="设置">
       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
       </svg>
     </button>
   </div>
@@ -165,9 +160,9 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         打开文件（二维码图片、JSON、CSV 等）
       </button>
-      <button id="btn-scan-screen" class="btn btn-secondary" disabled style="width:100%;display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);font-size:13px;opacity:0.45;cursor:not-allowed;">
+      <button id="btn-scan-screen" class="btn btn-secondary" style="width:100%;display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);font-size:13px;">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-        扫描屏幕 <span style="font-size:10px;margin-left:auto;font-family:var(--font-mono);letter-spacing:0.05em;">暂不可用</span>
+        扫描屏幕
       </button>
       <button id="btn-scan-camera" class="btn btn-secondary" style="width:100%;display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);font-size:13px;">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>

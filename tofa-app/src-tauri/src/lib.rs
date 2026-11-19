@@ -1,13 +1,18 @@
 mod about_window;
 mod commands;
+mod login_item;
+#[cfg(target_os = "macos")]
+mod macos_tray;
 mod state;
 
 use state::AppState;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+#[cfg(not(target_os = "macos"))]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
     Emitter, Listener, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
 };
 
@@ -99,22 +104,7 @@ fn position_popover_under_tray(window: &WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn position_popover_under_tray(_window: &WebviewWindow) {}
 
-/// Show the popover under the tray on the right monitor, then focus it.
-/// If the passphrase cache TTL elapsed while the popover was hidden,
-/// emit `session-locked` *before* showing the window so the JS handler
-/// has the event in flight before the first paint — avoids a flash of
-/// stale unlocked codes.
 fn show_popover_under_tray(win: &WebviewWindow) {
-    let app = win.app_handle();
-    if let Some(state) = app.try_state::<Mutex<AppState>>() {
-        if let Ok(mut s) = state.lock() {
-            if s.cache.is_expired() {
-                s.cache.lock();
-                let _ = app.emit("session-locked", ());
-            }
-        }
-    }
-
     position_popover_under_tray(win);
     let _ = win.show();
     let _ = win.set_focus();
@@ -123,18 +113,26 @@ fn show_popover_under_tray(win: &WebviewWindow) {
     position_popover_under_tray(win);
 }
 
+fn show_mfa_from_tray(app: &tauri::AppHandle) {
+    if POPOVER_PINNED.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(win) = app.get_webview_window("popover") {
+        show_popover_under_tray(&win);
+        let _ = win.emit("tray-action", "mfa");
+    }
+}
+
 fn build_tray_menu(
     app: &tauri::AppHandle,
     item_about: &MenuItem<Wry>,
     item_scan_screen: &MenuItem<Wry>,
     item_scan_camera: &MenuItem<Wry>,
-    item_lock: &MenuItem<Wry>,
     item_quit: &MenuItem<Wry>,
 ) -> tauri::Result<Menu<Wry>> {
     let sep1 = PredefinedMenuItem::separator(app)?;
     let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let sep3 = PredefinedMenuItem::separator(app)?;
 
     let items: &[&dyn IsMenuItem<Wry>] = &[
         item_about,
@@ -143,8 +141,6 @@ fn build_tray_menu(
         item_scan_camera,
         &settings_item,
         &sep2,
-        item_lock,
-        &sep3,
         item_quit,
     ];
     Menu::with_items(app, items)
@@ -168,8 +164,9 @@ pub fn run() {
             commands::get_full_uri,
             commands::get_settings,
             commands::save_settings,
+            login_item::get_login_item_status,
+            login_item::set_login_item_enabled,
             commands::get_secret,
-            commands::lock,
             commands::scan_screen,
             commands::scan_camera,
             commands::scan_image_bytes,
@@ -220,7 +217,6 @@ pub fn run() {
                 MenuItem::with_id(app, "scan-screen", "扫描屏幕", false, None::<&str>)?;
             let item_scan_camera =
                 MenuItem::with_id(app, "scan-camera", "摄像头扫描", false, None::<&str>)?;
-            let item_lock = MenuItem::with_id(app, "lock", "锁定保险库", false, None::<&str>)?;
             let item_quit = MenuItem::with_id(app, "quit", "退出 TOFA", true, Some("CmdOrCtrl+Q"))?;
 
             let item_about = MenuItem::with_id(app, "about", "关于 TOFA", true, None::<&str>)?;
@@ -229,7 +225,6 @@ pub fn run() {
                 &item_about,
                 &item_scan_screen,
                 &item_scan_camera,
-                &item_lock,
                 &item_quit,
             )?;
 
@@ -249,6 +244,9 @@ pub fn run() {
                 })
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| {
+                    if POPOVER_PINNED.load(Ordering::Relaxed) {
+                        return;
+                    }
                     let action = match event.id.as_ref() {
                         "about" => {
                             crate::about_window::show_or_focus(app);
@@ -257,7 +255,6 @@ pub fn run() {
                         "scan-screen" => "scan-screen",
                         "scan-camera" => "scan-camera",
                         "settings" => "settings",
-                        "lock" => "lock",
                         "quit" => {
                             app.exit(0);
                             return;
@@ -272,19 +269,17 @@ pub fn run() {
                 .build(app)?;
 
             let tray_id = tray.id().clone();
+            #[cfg(target_os = "macos")]
+            macos_tray::install(&tray)?;
 
-            // Enable scan-camera + lock when unlocked, disable when locked.
-            // Scan Screen stays disabled in the tray — invoking it from the tray
-            // opens the popover, which then occludes the area being captured.
-            // The in-popover button works because the popover is hidden during
-            // capture; the tray path can't replicate that without race conditions.
+            // 扫描入口随保险库会话状态同步。
+            let ss = item_scan_screen.clone();
             let sc = item_scan_camera.clone();
-            let lk = item_lock.clone();
             let app_unlock = app.handle().clone();
             let tray_id_unlock = tray_id.clone();
             app.listen("session-unlocked", move |_| {
+                let _ = ss.set_enabled(true);
                 let _ = sc.set_enabled(true);
-                let _ = lk.set_enabled(true);
                 if let Some(tray) = app_unlock.tray_by_id(&tray_id_unlock) {
                     if let Ok(icon) = tauri::image::Image::from_bytes(ICON_OPEN) {
                         let _ = tray.set_icon(Some(icon));
@@ -292,13 +287,13 @@ pub fn run() {
                 }
             });
 
+            let ss2 = item_scan_screen.clone();
             let sc2 = item_scan_camera.clone();
-            let lk2 = item_lock.clone();
             let app_lock = app.handle().clone();
             let tray_id_lock = tray_id.clone();
             app.listen("session-locked", move |_| {
+                let _ = ss2.set_enabled(false);
                 let _ = sc2.set_enabled(false);
-                let _ = lk2.set_enabled(false);
                 if let Some(tray) = app_lock.tray_by_id(&tray_id_lock) {
                     if let Ok(icon) = tauri::image::Image::from_bytes(ICON_LOCKED) {
                         let _ = tray.set_icon(Some(icon));
@@ -306,6 +301,7 @@ pub fn run() {
                 }
             });
 
+            #[cfg(not(target_os = "macos"))]
             tray.on_tray_icon_event(|tray, event| {
                 if let TrayIconEvent::Click {
                     button: MouseButton::Left,
@@ -313,15 +309,7 @@ pub fn run() {
                     ..
                 } = event
                 {
-                    let app = tray.app_handle();
-                    if let Some(win) = app.get_webview_window("popover") {
-                        let visible = win.is_visible().unwrap_or(false);
-                        if visible {
-                            let _ = win.hide();
-                        } else {
-                            show_popover_under_tray(&win);
-                        }
-                    }
+                    show_mfa_from_tray(tray.app_handle());
                 }
             });
 

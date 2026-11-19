@@ -23,33 +23,18 @@ pub struct Settings {
     pub vault_path: String,
     #[serde(default = "default_theme")]
     pub theme: String, // "system" | "dark" | "light"
-    /// Seconds the unlocked passphrase stays cached in memory. `None`
-    /// means "never auto-lock". Missing in legacy JSON files → falls back
-    /// to 10 min via the serde default below.
-    #[serde(default = "default_lock_after_seconds")]
-    pub lock_after_seconds: Option<u64>,
 }
 
 fn default_theme() -> String {
     "system".to_string()
 }
 
-fn default_lock_after_seconds() -> Option<u64> {
-    Some(crate::state::DEFAULT_LOCK_AFTER_SECONDS)
-}
-
-/// Take the passphrase + vault path out of the unlocked cache.
-///
-/// If the cache is locked (either explicitly or because the cache's TTL
-/// elapsed in `state.rs` since the last access), emit `session-locked` so the UI
-/// can return to the lock screen — the silent TTL path is otherwise
-/// invisible to the frontend and surfaces only as a cryptic "locked"
-/// error at the next command invocation.
+// 读取本次运行会话中的口令和保险库路径。
 fn take_unlocked(
     state: &Mutex<AppState>,
     app: &tauri::AppHandle,
 ) -> Result<(std::path::PathBuf, Zeroizing<String>), String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
+    let s = state.lock().map_err(|e| e.to_string())?;
     match s.cache.with_passphrase(|p| Zeroizing::new(p.to_string())) {
         Some(p) => Ok((s.vault_path.clone(), p)),
         None => {
@@ -239,7 +224,6 @@ pub fn get_settings() -> Result<Settings, String> {
         Ok(Settings {
             vault_path: default_vault_path().to_string_lossy().to_string(),
             theme: default_theme(),
-            lock_after_seconds: default_lock_after_seconds(),
         })
     }
 }
@@ -362,7 +346,11 @@ pub async fn pick_vault_folder(window: tauri::Window) -> Result<Option<String>, 
 }
 
 #[tauri::command]
-pub fn save_settings(settings: Settings, state: State<Mutex<AppState>>) -> Result<(), String> {
+pub fn save_settings(
+    settings: Settings,
+    state: State<Mutex<AppState>>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
     let path = settings_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -370,14 +358,12 @@ pub fn save_settings(settings: Settings, state: State<Mutex<AppState>>) -> Resul
     let s = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
     let mut st = state.lock().map_err(|e| e.to_string())?;
-    st.vault_path = std::path::PathBuf::from(&settings.vault_path);
-    st.cache.set_lock_after(
-        settings
-            .lock_after_seconds
-            .map(std::time::Duration::from_secs),
-    );
-    st.cache.lock();
-    Ok(())
+    let changed = st.select_vault(std::path::PathBuf::from(&settings.vault_path));
+    drop(st);
+    if changed {
+        let _ = app.emit("session-locked", ());
+    }
+    Ok(changed)
 }
 
 #[tauri::command]
@@ -393,14 +379,6 @@ pub fn get_secret(
         .entry_by_id(&id)
         .ok_or_else(|| format!("Entry '{}' not found.", id))?;
     Ok(entry.secret.clone())
-}
-
-#[tauri::command]
-pub fn lock(state: State<Mutex<AppState>>, app: tauri::AppHandle) -> Result<(), String> {
-    let mut s = state.lock().map_err(|e| e.to_string())?;
-    s.cache.lock();
-    let _ = app.emit("session-locked", ());
-    Ok(())
 }
 
 #[tauri::command]
@@ -424,12 +402,28 @@ pub async fn delete_entry(
     .map_err(|e| e.to_string())?
 }
 
+fn decode_screen_selection(
+    path: &std::path::Path,
+) -> Result<Vec<tofa_core::qr::OtpSecret>, String> {
+    let uris = tofa_core::qr::scan_all_qr_uris(path).map_err(|_| "未在所选区域识别到二维码。")?;
+    let accounts: Vec<_> = uris
+        .iter()
+        .filter_map(|uri| tofa_core::import::parse_uri(uri).ok())
+        .flatten()
+        .collect();
+    if accounts.is_empty() {
+        return Err("所选区域没有可导入的 MFA 二维码。".into());
+    }
+    Ok(accounts)
+}
+
 #[tauri::command]
 pub async fn scan_screen(
     app: tauri::AppHandle,
     state: State<'_, Mutex<AppState>>,
 ) -> Result<Vec<String>, String> {
-    // 1. Request screen recording permission (macOS Sequoia requires explicit API call)
+    // 锁定时不启动捕获；完成框选后再次检查会话。
+    drop(take_unlocked(&state, &app)?);
     #[cfg(target_os = "macos")]
     {
         extern "C" {
@@ -437,60 +431,59 @@ pub async fn scan_screen(
         }
         let granted = unsafe { CGRequestScreenCaptureAccess() };
         if !granted {
-            return Err("Screen recording permission denied. Enable it in System Settings → Privacy & Security → Screen Recording.".to_string());
+            return Err("未获得屏幕录制权限。请在 macOS「系统设置 → 隐私与安全性 → 屏幕与系统音频录制」中授权。".into());
         }
     }
 
-    // 2. Hide window so it doesn't appear in the screenshot
-    if let Some(win) = app.get_webview_window("popover") {
-        let _ = win.hide();
+    let scratch = tempfile::Builder::new()
+        .prefix("temp-tofa-scan-")
+        .tempdir()
+        .map_err(|_| "无法创建本地临时目录。")?;
+    let image = scratch.path().join("selection.png");
+    let win = app.get_webview_window("popover");
+    if let Some(win) = &win {
+        win.hide().map_err(|_| "无法隐藏 TOFA 窗口。")?;
     }
-    std::thread::sleep(std::time::Duration::from_millis(250));
 
-    // 3. Take screenshot
-    let tmp = std::env::temp_dir().join(format!("tofa_scan_{}.png", std::process::id()));
-    std::process::Command::new("screencapture")
-        .args(["-x", "-t", "png", tmp.to_str().unwrap_or_default()])
-        .status()
-        .map_err(|e| e.to_string())?;
-
-    // 4. Window reappears immediately — user sees progress while we process
-    if let Some(win) = app.get_webview_window("popover") {
+    let selected_image = image.clone();
+    let capture = tokio::task::spawn_blocking(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        std::process::Command::new("/usr/sbin/screencapture")
+            .args(["-i", "-s", "-x", "-t", "png"])
+            .arg(selected_image)
+            .status()
+    })
+    .await;
+    if let Some(win) = &win {
         let _ = win.show();
         let _ = win.set_focus();
     }
-    let _ = app.emit("scan-step", "正在读取截屏…");
+    let capture = capture
+        .map_err(|_| "屏幕截取任务异常结束。")?
+        .map_err(|_| "无法启动 macOS 屏幕截取。")?;
+    if !capture.success() {
+        return Err("屏幕截取失败。".into());
+    }
+    if !image.is_file() {
+        return Ok(Vec::new());
+    }
 
-    // 4. Decode QR codes from screenshot
     let _ = app.emit("scan-step", "正在识别二维码…");
-    let uris = tofa_core::qr::scan_all_qr_uris(&tmp)
-        .map_err(|_| "No QR code found on screen.".to_string());
-    let _ = std::fs::remove_file(&tmp);
-    let uris = uris?;
-    let _ = app.emit(
-        "scan-step",
-        format!("Found {} code(s) — decoding…", uris.len()),
-    );
+    let otps = tokio::task::spawn_blocking(move || {
+        let _scratch = scratch;
+        decode_screen_selection(&image)
+    })
+    .await
+    .map_err(|_| "二维码识别任务异常结束。")??;
 
-    // 5. Save to vault
     let (vault_path, passphrase) = take_unlocked(&state, &app)?;
 
     let app_handle = app.clone();
-    let added = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let mut vault =
             tofa_core::store::Vault::load(&vault_path, &passphrase).map_err(|e| e.to_string())?;
         let today = tofa_core::today_iso();
         let mut added = Vec::new();
-
-        // Expand each scanned URI — migration QRs contain multiple accounts.
-        // Per-URI parse errors are swallowed so a single bad QR on the screen
-        // doesn't sink the whole scan.
-        let mut otps: Vec<tofa_core::qr::OtpSecret> = Vec::new();
-        for uri in &uris {
-            if let Ok(found) = tofa_core::import::parse_uri(uri) {
-                otps.extend(found);
-            }
-        }
 
         for otp in otps {
             let name = otp.meta.derive_name();
@@ -500,6 +493,9 @@ pub async fn scan_screen(
             }
         }
 
+        if added.is_empty() {
+            return Err("二维码中的账号已存在，未重复导入。".into());
+        }
         let _ = app_handle.emit("scan-step", "正在保存到保险库…");
         vault
             .save(&vault_path, &passphrase)
@@ -507,13 +503,7 @@ pub async fn scan_screen(
         Ok::<Vec<String>, String>(added)
     })
     .await
-    .map_err(|e| e.to_string())??;
-
-    if added.is_empty() {
-        Err("No valid OTP QR codes found.".to_string())
-    } else {
-        Ok(added)
-    }
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1223,23 +1213,22 @@ mod tests {
     }
 
     #[test]
-    fn settings_deserialize_legacy_without_lock_after() {
-        let json = r#"{ "vault_path": "/tmp/v.enc", "theme": "system" }"#;
+    fn legacy_auto_lock_setting_is_ignored() {
+        let json = r#"{ "vault_path": "/tmp/v.enc", "theme": "light", "lock_after_seconds": 1 }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.lock_after_seconds, Some(600));
+        assert_eq!(s.vault_path, "/tmp/v.enc");
+        assert_eq!(s.theme, "light");
+        assert!(!serde_json::to_value(s)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("lock_after_seconds"));
     }
 
     #[test]
-    fn settings_deserialize_never_lock() {
-        let json = r#"{ "vault_path": "/tmp/v.enc", "theme": "dark", "lock_after_seconds": null }"#;
-        let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.lock_after_seconds, None);
-    }
-
-    #[test]
-    fn settings_deserialize_explicit_lock_after() {
-        let json = r#"{ "vault_path": "/tmp/v.enc", "theme": "light", "lock_after_seconds": 60 }"#;
-        let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.lock_after_seconds, Some(60));
+    fn screen_selection_expands_google_migration_accounts() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tofa-core/tests/fixtures/google_authenticator/demo_migration.png");
+        assert_eq!(super::decode_screen_selection(&fixture).unwrap().len(), 4);
     }
 }

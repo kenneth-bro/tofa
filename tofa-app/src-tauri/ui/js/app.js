@@ -31,12 +31,7 @@ let selectedId = null;
 let tickInterval = null;
 let fromView = 'view-list'; // view to return to when pressing Back
 
-// Auto-lock tracking — JS mirrors the cache TTL so we can flip the UI to the
-// locked view *while the popover is open*, not just on next show. Both fields
-// are reset on lock (button, settings save, session-locked event). Reading
-// them in tick() avoids an IPC round-trip per second.
-let unlockedAtMs = null;
-let lockAfterSeconds = 600; // refreshed from settings in init() and on save
+let sessionUnlocked = false;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -140,7 +135,6 @@ async function init() {
     const s = await invoke('get_settings');
     applyTheme(s.theme || 'system');
     document.documentElement.setAttribute('data-theme-pref', s.theme || 'system');
-    lockAfterSeconds = s.lock_after_seconds === undefined ? 600 : s.lock_after_seconds;
   } catch (_) {
     applyTheme('system');
   }
@@ -245,21 +239,6 @@ function stopTick() {
 }
 
 function tick() {
-  // Auto-lock while visible: if the configured TTL has elapsed since
-  // unlock, fire `lock` and let the session-locked event flip the UI.
-  // Doing this in JS (rather than a Rust background timer) keeps the
-  // truth in one place and works while the popover is hidden too,
-  // since setInterval keeps firing whether the webview is visible or not.
-  if (unlockedAtMs !== null && lockAfterSeconds !== null) {
-    const elapsedSec = (Date.now() - unlockedAtMs) / 1000;
-    if (elapsedSec >= lockAfterSeconds) {
-      unlockedAtMs = null;
-      stopTick();
-      invoke('lock').catch(() => {});
-      return;
-    }
-  }
-
   const secs = OTP.secondsRemaining();
   const globalBar = $('global-progress-bar');
   const pct = (secs / 30) * 100;
@@ -400,27 +379,11 @@ async function openSettings(from) {
   fromView = from ?? currentView();
   let settings;
   try { settings = await invoke('get_settings'); } catch (_) {
-    settings = { vault_path: '', theme: 'system', lock_after_seconds: 600 };
+    settings = { vault_path: '', theme: 'system' };
   }
   const theme = settings.theme || 'system';
-  // settings.lock_after_seconds is number|null (null = never). undefined
-  // shouldn't happen because serde fills the default, but coerce for safety.
-  const initialLockAfter =
-    settings.lock_after_seconds === undefined ? 600 : settings.lock_after_seconds;
-
   const wrap = $('view-add-content');
   if (!wrap) return;
-
-  // Helper: is the loaded value one of the preset buttons?
-  const presets = [60, 300, 600, 3600, 86400];
-  const presetMatch = initialLockAfter === null
-    ? 'never'
-    : (presets.includes(initialLockAfter) ? String(initialLockAfter) : null);
-
-  function lockBtn(val, label) {
-    const active = presetMatch === val ? ' active' : '';
-    return `<button class="settings-seg-btn${active}" data-lock-btn="${val}">${label}</button>`;
-  }
 
   wrap.innerHTML = `
     <div class="settings-section">
@@ -445,23 +408,40 @@ async function openSettings(from) {
       </div>
     </div>
     <div class="settings-section">
-      <span class="settings-section-label">自动锁定时间</span>
-      <div class="settings-segmented settings-segmented-grid">
-        ${lockBtn('60', '1 分钟')}
-        ${lockBtn('300', '5 分钟')}
-        ${lockBtn('600', '10 分钟')}
-        ${lockBtn('3600', '1 小时')}
-        ${lockBtn('86400', '24 小时')}
-        ${lockBtn('never', '从不')}
-      </div>
-      <p class="settings-hint" id="settings-lock-hint" style="display:${presetMatch==='never'?'block':'none'};">
-        不推荐：锁定或退出前，口令会保留在内存中。
-      </p>
+      <label class="settings-login-row" for="settings-login-item">
+        <span>登录时启动</span>
+        <input id="settings-login-item" type="checkbox" disabled aria-describedby="settings-login-status">
+      </label>
+      <p id="settings-login-status" class="settings-error" role="status" hidden></p>
     </div>
     <button id="btn-settings-save" class="btn btn-primary settings-save-btn">保存</button>
     <p id="settings-error" class="settings-error"></p>`;
 
   $('settings-vault-path').value = settings.vault_path;
+
+  const loginToggle = $('settings-login-item');
+  const loginStatus = $('settings-login-status');
+  function showLoginStatus(state, error = '') {
+    loginToggle.checked = state === 'enabled' || state === 'approval_required';
+    loginToggle.disabled = state === 'unavailable';
+    loginStatus.textContent = error || (state === 'approval_required'
+      ? '等待 macOS 在「登录项与扩展」中批准'
+      : state === 'unavailable' ? '无法读取 macOS 登录项' : '');
+    loginStatus.hidden = !loginStatus.textContent;
+    loginStatus.style.display = loginStatus.hidden ? 'none' : 'block';
+  }
+  const readLoginStatus = () => invoke('get_login_item_status').catch(() => 'unavailable');
+  readLoginStatus().then(showLoginStatus);
+  loginToggle.addEventListener('change', async () => {
+    const enabled = loginToggle.checked;
+    loginToggle.disabled = true;
+    try {
+      const state = await withPopoverPinned(() => invoke('set_login_item_enabled', { enabled }));
+      showLoginStatus(state);
+    } catch (err) {
+      showLoginStatus(await readLoginStatus(), String(err));
+    }
+  });
 
   // Theme segmented control
   let selectedTheme = theme;
@@ -470,19 +450,6 @@ async function openSettings(from) {
       selectedTheme = btn.dataset.themeBtn;
       wrap.querySelectorAll('[data-theme-btn]').forEach(b => b.classList.toggle('active', b === btn));
       applyTheme(selectedTheme);
-    });
-  });
-
-  // Lock-after segmented control. Initialized to the loaded value so that
-  // hand-edited JSON values (e.g., 7 min) round-trip through Save untouched
-  // even when no button highlights for them.
-  let selectedLockAfter = initialLockAfter;
-  wrap.querySelectorAll('[data-lock-btn]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const raw = btn.dataset.lockBtn;
-      selectedLockAfter = raw === 'never' ? null : Number(raw);
-      wrap.querySelectorAll('[data-lock-btn]').forEach(b => b.classList.toggle('active', b === btn));
-      $('settings-lock-hint').style.display = raw === 'never' ? 'block' : 'none';
     });
   });
 
@@ -496,17 +463,15 @@ async function openSettings(from) {
   $('btn-settings-save').addEventListener('click', async () => {
     const vault_path = $('settings-vault-path').value.trim();
     try {
-      await invoke('save_settings', {
-        settings: {
-          vault_path,
-          theme: selectedTheme,
-          lock_after_seconds: selectedLockAfter,
-        },
+      const vaultChanged = await invoke('save_settings', {
+        settings: { vault_path, theme: selectedTheme },
       });
       document.documentElement.setAttribute('data-theme-pref', selectedTheme);
       toast('设置已保存');
-      showView('view-locked');
-      init();
+      if (!vaultChanged) {
+        restoreAddView();
+        showView(sessionUnlocked ? 'view-list' : 'view-locked');
+      }
     } catch (err) {
       const errEl = $('settings-error');
       errEl.textContent = String(err);
@@ -544,21 +509,23 @@ function bindAddListeners() {
   const btnScan = $('btn-scan-screen');
   if (btnScan) {
     btnScan.addEventListener('click', async () => {
-      for (const n of [3, 2, 1]) {
-        toast(`${n} 秒后开始扫描…`);
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      btnScan.disabled = true;
       loaderStart();
       showBlocking('正在扫描屏幕中的二维码…');
       try {
         const added = await withPopoverPinned(() => invoke('scan_screen'));
+        if (added.length === 0) return;
         const data = await invoke('get_entries');
         renderList(data);
         showView('view-list');
         startTick();
-        toast(`已添加： ${added.join(', ')}`);
+        toast(`已添加 ${added.length} 个账号`);
       } catch (err) { toast(String(err), true); }
-      finally { loaderDone(); hideBlocking(); }
+      finally {
+        btnScan.disabled = false;
+        loaderDone();
+        hideBlocking();
+      }
     });
   }
 
@@ -646,7 +613,7 @@ $('form-unlock').addEventListener('submit', async e => {
       data = await invoke('create_vault', { passphrase });
     }
     renderList(data);
-    unlockedAtMs = Date.now();
+    sessionUnlocked = true;
     startTick();
     showView('view-list');
   } catch (err) {
@@ -661,16 +628,6 @@ $('form-unlock').addEventListener('submit', async e => {
     $('input-passphrase').value = '';
     $('input-passphrase-confirm').value = '';
   }
-});
-
-$('btn-lock').addEventListener('click', async () => {
-  stopTick();
-  entries = [];
-  filteredEntries = [];
-  selectedId = null;
-  fromView = 'view-list';
-  try { await invoke('lock'); } catch (_) {}
-  init();
 });
 
 $('btn-add').addEventListener('click', () => {
@@ -923,15 +880,10 @@ $('reveal-passphrase').addEventListener('keydown', e => {
 
 $('search-input').addEventListener('input', e => applyFilter(e.target.value));
 
-// Reset popover state when the backend reports the vault is locked.
-// Fires from `invoke('lock')`, but also from the silent TTL expiry inside
-// `state.rs::PassphraseCache::get` — caught by `take_unlocked` in
-// commands.rs. Without this, the user can sit on view-add with a stale
-// session and only learn about the lock by clicking a button and getting
-// a one-word "locked" toast.
+// 切换保险库后，需要重新解锁。
 function onSessionLocked() {
   stopTick();
-  unlockedAtMs = null;
+  sessionUnlocked = false;
   entries = [];
   filteredEntries = [];
   selectedId = null;
@@ -942,20 +894,20 @@ listen('session-locked', onSessionLocked);
 
 // Tray menu events
 listen('tray-action', ({ payload }) => {
-  if (payload === 'lock') {
-    stopTick();
-    entries = [];
-    filteredEntries = [];
+  if (payload === 'mfa') {
+    $('btn-qr-close').click();
+    $('export-qr-overlay').style.display = 'none';
+    $('reveal-overlay').style.display = 'none';
+    $('reveal-passphrase').value = '';
     selectedId = null;
     fromView = 'view-list';
-    invoke('lock').catch(() => {});
-    init();
+    restoreAddView();
+    showView(sessionUnlocked ? 'view-list' : 'view-locked');
   } else if (payload === 'settings') {
     openSettings();
   } else if (payload === 'scan-screen') {
-    restoreAddView();
-    showView('view-add');
-    setTimeout(() => { const btn = $('btn-scan-screen'); if (btn) btn.click(); }, 100);
+    $('btn-add').click();
+    $('btn-scan-screen').click();
   } else if (payload === 'scan-camera') {
     const btnCam = $('btn-scan-camera');
     if (btnCam) btnCam.click();
