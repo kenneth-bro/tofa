@@ -1,5 +1,7 @@
 pub mod crypto;
 pub mod import;
+#[cfg(target_os = "macos")]
+pub mod mcp_bridge;
 pub mod qr;
 pub mod store;
 pub mod totp;

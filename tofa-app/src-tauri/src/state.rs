@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
@@ -20,6 +21,7 @@ impl PassphraseCache {
 pub struct AppState {
     pub cache: PassphraseCache,
     pub vault_path: PathBuf,
+    pub mcp_account_ids: BTreeSet<String>,
 }
 
 impl AppState {
@@ -32,7 +34,13 @@ impl AppState {
         Self {
             cache: PassphraseCache::default(),
             vault_path,
+            mcp_account_ids: BTreeSet::new(),
         }
+    }
+
+    pub fn unlock(&mut self, passphrase: String) {
+        self.mcp_account_ids.clear();
+        self.cache.unlock(passphrase);
     }
 
     // 切换保险库时不沿用旧库口令；只修改外观时保留会话。
@@ -42,6 +50,7 @@ impl AppState {
         }
         self.vault_path = path;
         self.cache = PassphraseCache::default();
+        self.mcp_account_ids.clear();
         true
     }
 }
@@ -82,11 +91,15 @@ mod tests {
         let mut state = AppState {
             vault_path: "a.enc".into(),
             cache: PassphraseCache::default(),
+            mcp_account_ids: BTreeSet::new(),
         };
-        state.cache.unlock(String::from("fixture-password"));
+        state.unlock(String::from("fixture-password"));
+        state.mcp_account_ids.insert("test-id".into());
         assert!(!state.select_vault("a.enc".into()));
         assert!(state.cache.with_passphrase(|_| ()).is_some());
+        assert!(state.mcp_account_ids.contains("test-id"));
         assert!(state.select_vault("b.enc".into()));
         assert!(state.cache.with_passphrase(|_| ()).is_none());
+        assert!(state.mcp_account_ids.is_empty());
     }
 }

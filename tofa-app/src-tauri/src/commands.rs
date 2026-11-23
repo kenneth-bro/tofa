@@ -77,7 +77,7 @@ pub async fn create_vault(
     let mut s = state.lock().map_err(|e| e.to_string())?;
     let vault = tofa_core::store::Vault::load(&s.vault_path, &passphrase)
         .map_err(|_| "Failed to open new vault.".to_string())?;
-    s.cache.unlock(passphrase);
+    s.unlock(passphrase);
     let _ = app.emit("session-unlocked", ());
     entries_from_vault(&vault)
 }
@@ -97,7 +97,7 @@ pub fn unlock(
     }
     let vault = tofa_core::store::Vault::load(&s.vault_path, &passphrase)
         .map_err(|_| "Wrong passphrase.".to_string())?;
-    s.cache.unlock(passphrase);
+    s.unlock(passphrase);
     let _ = app.emit("session-unlocked", ());
     entries_from_vault(&vault)
 }
@@ -346,19 +346,55 @@ pub async fn pick_vault_folder(window: tauri::Window) -> Result<Option<String>, 
 }
 
 #[tauri::command]
+pub fn get_mcp_account_ids(state: State<Mutex<AppState>>) -> Option<Vec<String>> {
+    let state = state.lock().ok()?;
+    if cfg!(target_os = "macos") && state.cache.with_passphrase(|_| ()).is_some() {
+        Some(state.mcp_account_ids.iter().cloned().collect())
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
 pub fn save_settings(
     settings: Settings,
+    mcp_account_ids: Option<Vec<String>>,
     state: State<Mutex<AppState>>,
     app: tauri::AppHandle,
 ) -> Result<bool, String> {
+    let new_vault = std::path::PathBuf::from(&settings.vault_path);
+    let mut st = state.lock().map_err(|e| e.to_string())?;
+    let approved = match mcp_account_ids {
+        Some(ids) if cfg!(target_os = "macos") && new_vault == st.vault_path => {
+            if ids.is_empty() {
+                Some(Default::default())
+            } else {
+                let valid = st.cache.with_passphrase(|passphrase| {
+                    tofa_core::Vault::load(&st.vault_path, passphrase)
+                        .map(|vault| {
+                            ids.iter()
+                                .all(|id| !id.is_empty() && vault.entry_by_id(id).is_some())
+                        })
+                        .unwrap_or(false)
+                });
+                if valid != Some(true) {
+                    return Err("请解锁保险库，并重新选择要授权给 Codex 的账号。".into());
+                }
+                Some(ids.into_iter().collect())
+            }
+        }
+        _ => None,
+    };
     let path = settings_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let s = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
-    let mut st = state.lock().map_err(|e| e.to_string())?;
-    let changed = st.select_vault(std::path::PathBuf::from(&settings.vault_path));
+    let changed = st.select_vault(new_vault);
+    if let Some(approved) = approved {
+        st.mcp_account_ids = approved;
+    }
     drop(st);
     if changed {
         let _ = app.emit("session-locked", ());
@@ -388,6 +424,8 @@ pub async fn delete_entry(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let (vault_path, passphrase) = take_unlocked(&state, &app)?;
+    let deleted_from = vault_path.clone();
+    let deleted_id = id.clone();
     tokio::task::spawn_blocking(move || {
         let mut vault =
             tofa_core::store::Vault::load(&vault_path, &passphrase).map_err(|e| e.to_string())?;
@@ -399,7 +437,12 @@ pub async fn delete_entry(
             .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    if state.vault_path == deleted_from {
+        state.mcp_account_ids.remove(&deleted_id);
+    }
+    Ok(())
 }
 
 fn decode_screen_selection(

@@ -200,9 +200,9 @@ function applyFilter(query) {
       <div style="display:flex;align-items:center;gap:var(--s-2);flex-shrink:0;padding-left:var(--s-2);">
         <div class="item-code-col" style="text-align:right;cursor:pointer;" title="点击复制验证码">
           <div style="font-family:var(--font-mono);font-weight:700;font-size:14px;letter-spacing:0.08em;color:${timerColor}">${entry.code}</div>
-          <div style="font-family:var(--font-mono);font-size:10px;color:${timerColor}" data-timer="${entry.id}">${secs}s</div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:${timerColor}" data-timer="${escapeHtml(entry.id)}">${secs}s</div>
         </div>
-        <button class="btn btn-ghost btn-copy-item" data-id="${entry.id}" style="padding:4px 6px;font-size:14px;flex-shrink:0;" title="复制验证码">⎘</button>
+        <button class="btn btn-ghost btn-copy-item" data-id="${escapeHtml(entry.id)}" style="padding:4px 6px;font-size:14px;flex-shrink:0;" title="复制验证码">⎘</button>
       </div>`;
     item.addEventListener('click', e => {
       if (e.target.closest('.btn-copy-item') || e.target.closest('.item-code-col')) return;
@@ -384,6 +384,10 @@ async function openSettings(from) {
   const theme = settings.theme || 'system';
   const wrap = $('view-add-content');
   if (!wrap) return;
+  const approvedAccounts = sessionUnlocked
+    ? await invoke('get_mcp_account_ids').catch(() => null)
+    : null;
+  const showMcpAccounts = sessionUnlocked && Array.isArray(approvedAccounts);
 
   wrap.innerHTML = `
     <div class="settings-section">
@@ -414,10 +418,34 @@ async function openSettings(from) {
       </label>
       <p id="settings-login-status" class="settings-error" role="status" hidden></p>
     </div>
+    ${showMcpAccounts ? `<div class="settings-section">
+      <span class="settings-section-label">Codex 取码</span>
+      <p class="settings-login-row">勾选本次解锁会话允许 Codex 取码的账号。</p>
+      <div id="settings-mcp-accounts"></div>
+    </div>` : ''}
     <button id="btn-settings-save" class="btn btn-primary settings-save-btn">保存</button>
     <p id="settings-error" class="settings-error"></p>`;
 
   $('settings-vault-path').value = settings.vault_path;
+
+  if (showMcpAccounts) {
+    const selected = new Set(approvedAccounts);
+    const accounts = $('settings-mcp-accounts');
+    for (const entry of entries) {
+      const label = document.createElement('label');
+      label.className = 'settings-login-row';
+      const name = document.createElement('span');
+      name.textContent = entry.name;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = entry.id;
+      checkbox.checked = selected.has(entry.id);
+      checkbox.disabled = !entry.id;
+      if (!entry.id) label.title = '此账号缺少稳定 ID，无法在 Codex 中授权';
+      label.append(name, checkbox);
+      accounts.append(label);
+    }
+  }
 
   const loginToggle = $('settings-login-item');
   const loginStatus = $('settings-login-status');
@@ -465,6 +493,9 @@ async function openSettings(from) {
     try {
       const vaultChanged = await invoke('save_settings', {
         settings: { vault_path, theme: selectedTheme },
+        mcpAccountIds: showMcpAccounts
+          ? [...wrap.querySelectorAll('#settings-mcp-accounts input:checked')].map(input => input.value)
+          : null,
       });
       document.documentElement.setAttribute('data-theme-pref', selectedTheme);
       toast('设置已保存');
@@ -763,7 +794,7 @@ $('btn-export-qr').addEventListener('click', () => {
       : '';
     return `
     <label style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-2);border-radius:var(--r-md);cursor:pointer;">
-      <input type="checkbox" data-id="${e.id}" checked style="width:14px;height:14px;accent-color:var(--brand);">
+      <input type="checkbox" data-id="${escapeHtml(e.id)}" checked style="width:14px;height:14px;accent-color:var(--brand);">
       <span style="font-size:13px;">${escapeHtml(e.issuer || e.name)}</span>
       ${badge}
       ${accountSpan}

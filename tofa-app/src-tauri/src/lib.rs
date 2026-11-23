@@ -3,6 +3,8 @@ mod commands;
 mod login_item;
 #[cfg(target_os = "macos")]
 mod macos_tray;
+#[cfg(target_os = "macos")]
+mod mcp_bridge;
 mod state;
 
 use state::AppState;
@@ -163,6 +165,7 @@ pub fn run() {
             commands::get_masked_uri,
             commands::get_full_uri,
             commands::get_settings,
+            commands::get_mcp_account_ids,
             commands::save_settings,
             login_item::get_login_item_status,
             login_item::set_login_item_enabled,
@@ -271,6 +274,11 @@ pub fn run() {
             let tray_id = tray.id().clone();
             #[cfg(target_os = "macos")]
             macos_tray::install(&tray)?;
+
+            #[cfg(target_os = "macos")]
+            if let Err(error) = mcp_bridge::start(app.handle().clone()) {
+                eprintln!("【TOFA MCP】本地连接服务启动失败 kind={:?}", error.kind());
+            }
 
             // 扫描入口随保险库会话状态同步。
             let ss = item_scan_screen.clone();
