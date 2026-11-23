@@ -33,6 +33,11 @@ serde_json = "1"
 zeroize = { version = "1", features = ["derive"] }
 tui-big-text = "0.6"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+rmcp = { version = "3.11.0", default-features = false, features = ["macros", "server", "transport-io"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "sync"] }
+
 [build-dependencies]
 clap_mangen = "0.2"
 clap = { version = "4", features = ["derive"] }

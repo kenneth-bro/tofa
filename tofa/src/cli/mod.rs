@@ -1,4 +1,6 @@
 pub mod commands;
+#[cfg(target_os = "macos")]
+mod mcp;
 
 use clap::{Parser, Subcommand};
 use rpassword::prompt_password;
@@ -34,6 +36,9 @@ pub enum Commands {
     List(commands::list::ListArgs),
     /// Show the current TOTP code for an account
     Code(commands::code::CodeArgs),
+    /// Serve approved TOTP requests from a local MCP client over stdio
+    #[cfg(target_os = "macos")]
+    Mcp,
     /// Add a new account
     Add(commands::add::AddArgs),
     /// Remove an account
@@ -149,6 +154,11 @@ pub fn find_entry<'a>(
 }
 
 pub fn dispatch(cmd: Commands, vault_flag: Option<PathBuf>) -> CliResult {
+    #[cfg(target_os = "macos")]
+    let cmd = match cmd {
+        Commands::Mcp => return mcp::run(vault_flag),
+        cmd => cmd,
+    };
     let vault_path = resolve_vault_path(vault_flag);
     let needs_vault = !matches!(cmd, Commands::Init(_) | Commands::Completions(_));
     if needs_vault && !vault_path.exists() {
@@ -163,6 +173,8 @@ pub fn dispatch(cmd: Commands, vault_flag: Option<PathBuf>) -> CliResult {
         Commands::Destroy => commands::destroy::run(vault_path),
         Commands::List(args) => commands::list::run(args, vault_path),
         Commands::Code(args) => commands::code::run(args, vault_path),
+        #[cfg(target_os = "macos")]
+        Commands::Mcp => unreachable!("MCP is handled before the CLI vault check"),
         Commands::Add(args) => commands::add::run(args, vault_path),
         Commands::Remove(args) => commands::remove::run(args, vault_path),
         Commands::Rename(args) => commands::rename::run(args, vault_path),
