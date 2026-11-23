@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use tofa_core::mcp_bridge::{self, Reply, Request};
+use tofa_core::mcp_bridge::{self, Action, Operation, Reply, Request};
 
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -26,7 +26,7 @@ struct TofaServer {
 impl ServerHandler for TofaServer {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("Use get_code only for the exact TOFA account requested by the user. Use the code only for the requested login.")
+            .with_instructions("Use list to identify accounts in the current unlocked TOFA CN vault. Use get_code only for the exact TOFA account requested by the user. Use the code only for the requested login.")
     }
 }
 
@@ -42,28 +42,57 @@ impl TofaServer {
         {
             return tool_error("请提供有效的 TOFA 账号全名或 ID。");
         }
+        match self
+            .request(Operation::GetCode {
+                account: args.account,
+            })
+            .await
+        {
+            Ok(Reply::Code {
+                code,
+                expires_in_seconds,
+            }) => CallToolResult::structured(
+                json!({ "code": code, "expires_in_seconds": expires_in_seconds }),
+            ),
+            Ok(_) => tool_error("TOFA CN 桌面会话返回了非预期的响应。"),
+            Err(message) => tool_error(message),
+        }
+    }
+
+    #[tool(
+        description = "List the ID and name of every account in the current unlocked TOFA CN vault.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
+    async fn list(&self) -> CallToolResult {
+        match self.request(Operation::Action(Action::List)).await {
+            Ok(Reply::Accounts(accounts)) => {
+                CallToolResult::structured(json!({ "accounts": accounts }))
+            }
+            Ok(_) => tool_error("TOFA CN 桌面会话返回了非预期的响应。"),
+            Err(message) => tool_error(message),
+        }
+    }
+}
+
+impl TofaServer {
+    async fn request(&self, operation: Operation) -> Result<Reply, String> {
         let config = self.config_dir.clone();
         let request = Request {
-            account: args.account,
+            operation,
             expected_vault: self.expected_vault.clone(),
         };
         match tokio::task::spawn_blocking(move || mcp_bridge::request(&config, &request)).await {
-            Ok(Ok(Reply::Code {
-                code,
-                expires_in_seconds,
-            })) => CallToolResult::structured(
-                json!({ "code": code, "expires_in_seconds": expires_in_seconds }),
-            ),
-            Ok(Ok(Reply::Error(message))) => tool_error(message),
+            Ok(Ok(Reply::Error(message))) => Err(message),
+            Ok(Ok(reply)) => Ok(reply),
             Ok(Err(error))
                 if matches!(
                     error.kind(),
                     ErrorKind::NotFound | ErrorKind::ConnectionRefused
                 ) =>
             {
-                tool_error("请启动支持 MCP 的 TOFA CN 桌面版并解锁保险库。")
+                Err("请启动支持 MCP 的 TOFA CN 桌面版并解锁保险库。".into())
             }
-            _ => tool_error("无法连接 TOFA CN 桌面会话。"),
+            _ => Err("无法连接 TOFA CN 桌面会话。".into()),
         }
     }
 }

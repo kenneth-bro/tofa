@@ -3,7 +3,7 @@ use std::io;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
-use tofa_core::mcp_bridge::{self, Reply, Request};
+use tofa_core::mcp_bridge::{self, Account, Action, Operation, Reply, Request};
 use tofa_core::{generate_code_at, seconds_remaining, Vault};
 
 pub fn start(app: AppHandle) -> io::Result<()> {
@@ -21,7 +21,7 @@ pub fn start(app: AppHandle) -> io::Result<()> {
                     let Ok(locked) = state.lock() else {
                         return Reply::Error("无法读取 TOFA 桌面会话。".into());
                     };
-                    issue_code(&locked, request)
+                    handle_request(&locked, request)
                         .unwrap_or_else(|message| Reply::Error(message.into()))
                 });
             }
@@ -29,7 +29,7 @@ pub fn start(app: AppHandle) -> io::Result<()> {
     Ok(())
 }
 
-fn issue_code(state: &AppState, request: Request) -> Result<Reply, &'static str> {
+fn handle_request(state: &AppState, request: Request) -> Result<Reply, &'static str> {
     if request
         .expected_vault
         .as_ref()
@@ -37,16 +37,34 @@ fn issue_code(state: &AppState, request: Request) -> Result<Reply, &'static str>
     {
         return Err("MCP 指定的保险库与 TOFA CN 当前保险库不一致。");
     }
-    let vault = state
+    state
         .cache
         .with_passphrase(|passphrase| {
-            if state.mcp_account_ids.is_empty() {
+            if matches!(request.operation, Operation::GetCode { .. })
+                && state.mcp_account_ids.is_empty()
+            {
                 return Err("在 TOFA CN 的设置中勾选本次会话允许 Codex 取码的账号并保存。");
             }
-            Vault::load(&state.vault_path, passphrase).map_err(|_| "无法读取当前 TOFA 保险库。")
+            let vault = Vault::load(&state.vault_path, passphrase)
+                .map_err(|_| "无法读取当前 TOFA 保险库。")?;
+            match request.operation {
+                Operation::GetCode { account } => issue_code(state, &vault, &account),
+                Operation::Action(Action::List) => Ok(Reply::Accounts(
+                    vault
+                        .entries()
+                        .iter()
+                        .map(|entry| Account {
+                            id: entry.id.clone(),
+                            name: entry.name.clone(),
+                        })
+                        .collect(),
+                )),
+            }
         })
-        .ok_or("请先在 TOFA CN 菜单栏解锁保险库。")??;
-    let account = request.account;
+        .ok_or("请先在 TOFA CN 菜单栏解锁保险库。")?
+}
+
+fn issue_code(state: &AppState, vault: &Vault, account: &str) -> Result<Reply, &'static str> {
     let denied = "该账号未在本次会话授权，或账号名称有重名。请核对授权和完整账号 ID。";
     // Resolve an exact ID or an unambiguous full name before checking the selected ID.
     let mut matches = vault
@@ -99,19 +117,47 @@ mod tests {
             mcp_account_ids: Default::default(),
         };
         fn code_for(state: &AppState, account: &str) -> Result<Reply, &'static str> {
-            issue_code(
+            handle_request(
                 state,
                 Request {
-                    account: account.into(),
+                    operation: Operation::GetCode {
+                        account: account.into(),
+                    },
                     expected_vault: None,
                 },
             )
         }
+        fn list(
+            state: &AppState,
+            expected_vault: Option<std::path::PathBuf>,
+        ) -> Result<Reply, &'static str> {
+            handle_request(
+                state,
+                Request {
+                    operation: Operation::Action(Action::List),
+                    expected_vault,
+                },
+            )
+        }
         assert!(code_for(&state, "enabled").is_err());
+        assert!(list(&state, None).is_err());
         state.unlock("fixture-password".into());
         assert!(code_for(&state, "enabled").is_err());
+        assert!(matches!(list(&state, None), Ok(Reply::Accounts(accounts)) if accounts.len() == 4));
         state.mcp_account_ids.insert(vault.entries()[0].id.clone());
         state.mcp_account_ids.insert(vault.entries()[2].id.clone());
+        assert!(list(&state, Some(temp.path().join("other.enc"))).is_err());
+        let listed =
+            serde_json::to_value(list(&state, Some(state.vault_path.clone())).unwrap()).unwrap();
+        assert_eq!(
+            listed,
+            serde_json::json!({ "Accounts": [
+                { "id": vault.entries()[0].id, "name": "enabled" },
+                { "id": vault.entries()[1].id, "name": "disabled" },
+                { "id": vault.entries()[2].id, "name": "collision" },
+                { "id": vault.entries()[3].id, "name": "collision" }
+            ] })
+        );
         for _ in 0..2 {
             let Reply::Code {
                 code,
@@ -131,5 +177,6 @@ mod tests {
         state.mcp_account_ids.insert(vault.entries()[0].id.clone());
         state.select_vault(temp.path().join("other.enc"));
         assert!(code_for(&state, "enabled").is_err());
+        assert!(list(&state, None).is_err());
     }
 }

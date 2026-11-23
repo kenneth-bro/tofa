@@ -8,12 +8,34 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const MAX_MESSAGE: u64 = 4096;
+const MAX_REQUEST: u64 = 4096;
+const MAX_REPLY: u64 = 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 pub struct Request {
-    pub account: String,
+    #[serde(flatten)]
+    pub operation: Operation,
     pub expected_vault: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Operation {
+    // 保留旧版取码客户端的请求格式。
+    GetCode { account: String },
+    Action(Action),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum Action {
+    List,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Account {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22,6 +44,7 @@ pub enum Reply {
         code: String,
         expires_in_seconds: u64,
     },
+    Accounts(Vec<Account>),
     Error(String),
 }
 
@@ -91,20 +114,20 @@ pub fn request(config_dir: &Path, request: &Request) -> io::Result<Reply> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
     write_message(&stream, request)?;
-    read_message(&stream)
+    read_message(&stream, MAX_REPLY)
 }
 
 pub fn respond(stream: &UnixStream, handler: impl FnOnce(Request) -> Reply) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-    let request = read_message(stream)?;
+    let request = read_message(stream, MAX_REQUEST)?;
     write_message(stream, &handler(request))
 }
 
-fn read_message<T: DeserializeOwned>(stream: &UnixStream) -> io::Result<T> {
+fn read_message<T: DeserializeOwned>(stream: &UnixStream, limit: u64) -> io::Result<T> {
     let mut data = Vec::new();
-    BufReader::new(stream.take(MAX_MESSAGE + 1)).read_until(b'\n', &mut data)?;
-    if data.len() as u64 > MAX_MESSAGE || data.last() != Some(&b'\n') {
+    BufReader::new(stream.take(limit + 1)).read_until(b'\n', &mut data)?;
+    if data.len() as u64 > limit || data.last() != Some(&b'\n') {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "invalid TOFA MCP frame",
@@ -137,10 +160,18 @@ mod tests {
 
         let server = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            respond(&stream, |request| Reply::Error(request.account)).unwrap();
+            respond(&stream, |request| {
+                let Operation::GetCode { account } = request.operation else {
+                    panic!("expected existing get_code request");
+                };
+                Reply::Error(account)
+            })
+            .unwrap();
         });
         let call = Request {
-            account: "fixture".into(),
+            operation: Operation::GetCode {
+                account: "fixture".into(),
+            },
             expected_vault: None,
         };
         assert!(matches!(request(config, &call).unwrap(), Reply::Error(text) if text == "fixture"));
