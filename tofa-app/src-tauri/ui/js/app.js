@@ -372,7 +372,79 @@ const ADD_INNER_HTML = (() => {
 function restoreAddView() {
   const wrap = $('view-add-content');
   if (wrap) wrap.innerHTML = ADD_INNER_HTML;
+  $('view-add-title').textContent = '添加账号';
   bindAddListeners();
+}
+
+function mountMcpAccounts(approvedAccounts) {
+  const selected = new Set(approvedAccounts);
+  const list = $('settings-mcp-accounts');
+  const count = $('settings-mcp-count');
+  const selectAll = $('settings-mcp-select-all');
+  const invert = $('settings-mcp-invert');
+  const checkboxes = [];
+  for (const entry of entries) {
+    const row = document.createElement('label');
+    row.className = 'mcp-account-row';
+    row.title = entry.id ? entry.name : '此账号缺少可授权的 ID';
+    const icon = document.createElement('span');
+    icon.className = 'mcp-account-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = entryIconHTML(entry);
+    const text = document.createElement('span');
+    text.className = 'mcp-account-text';
+    const name = document.createElement('span');
+    name.className = 'mcp-account-name';
+    name.textContent = entry.issuer || entry.name;
+    text.append(name);
+    const subtitle = entry.id ? (entry.issuer ? entry.account : '') : '缺少可授权的 ID';
+    if (subtitle) {
+      const detail = document.createElement('span');
+      detail.className = 'mcp-account-detail';
+      detail.textContent = subtitle;
+      text.append(detail);
+    }
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = entry.id;
+    checkbox.disabled = !entry.id;
+    checkbox.checked = Boolean(entry.id) && selected.has(entry.id);
+    checkbox.setAttribute('aria-label', entry.name);
+    if (!checkbox.disabled) checkboxes.push(checkbox);
+    row.classList.toggle('is-disabled', checkbox.disabled);
+    row.append(icon, text, checkbox);
+    list.append(row);
+  }
+
+  if (entries.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'mcp-account-empty';
+    empty.textContent = '保险库还没有账号';
+    list.append(empty);
+  }
+
+  function updateSelection() {
+    let chosen = 0;
+    for (const checkbox of checkboxes) {
+      checkbox.closest('.mcp-account-row').classList.toggle('is-selected', checkbox.checked);
+      if (checkbox.checked) chosen += 1;
+    }
+    count.textContent = `已选 ${chosen} / ${checkboxes.length}`;
+    selectAll.disabled = chosen === checkboxes.length;
+    invert.disabled = checkboxes.length === 0;
+  }
+  selectAll.addEventListener('click', () => {
+    for (const checkbox of checkboxes) checkbox.checked = true;
+    updateSelection();
+  });
+  invert.addEventListener('click', () => {
+    for (const checkbox of checkboxes) checkbox.checked = !checkbox.checked;
+    updateSelection();
+  });
+  list.addEventListener('change', updateSelection);
+  updateSelection();
+
+  return () => checkboxes.filter(checkbox => checkbox.checked).map(checkbox => checkbox.value);
 }
 
 async function openSettings(from) {
@@ -390,6 +462,18 @@ async function openSettings(from) {
   const showMcpAccounts = sessionUnlocked && Array.isArray(approvedAccounts);
 
   wrap.innerHTML = `
+    ${showMcpAccounts ? `<section class="settings-section mcp-access" aria-labelledby="settings-mcp-title">
+      <div class="mcp-access-heading">
+        <h2 id="settings-mcp-title">Codex 取码</h2>
+        <span id="settings-mcp-count" class="mcp-access-count" role="status"></span>
+      </div>
+      <p class="mcp-access-caption">保存后生效，仅限本次解锁会话。</p>
+      <div class="mcp-access-actions" role="group" aria-label="批量选择账号">
+        <button id="settings-mcp-select-all" type="button" class="mcp-access-action" aria-controls="settings-mcp-accounts">全选</button>
+        <button id="settings-mcp-invert" type="button" class="mcp-access-action" aria-controls="settings-mcp-accounts">反选</button>
+      </div>
+      <div id="settings-mcp-accounts" class="mcp-access-list" role="group" aria-label="允许 Codex 取码的账号"></div>
+    </section>` : ''}
     <div class="settings-section">
       <span class="settings-section-label">保险库路径</span>
       <div class="settings-row">
@@ -418,34 +502,14 @@ async function openSettings(from) {
       </label>
       <p id="settings-login-status" class="settings-error" role="status" hidden></p>
     </div>
-    ${showMcpAccounts ? `<div class="settings-section">
-      <span class="settings-section-label">Codex 取码</span>
-      <p class="settings-login-row">勾选本次解锁会话允许 Codex 取码的账号。</p>
-      <div id="settings-mcp-accounts"></div>
-    </div>` : ''}
-    <button id="btn-settings-save" class="btn btn-primary settings-save-btn">保存</button>
-    <p id="settings-error" class="settings-error"></p>`;
+    <div class="settings-actions">
+      <button id="btn-settings-save" class="btn btn-primary settings-save-btn">保存</button>
+      <p id="settings-error" class="settings-error" role="alert"></p>
+    </div>`;
 
   $('settings-vault-path').value = settings.vault_path;
 
-  if (showMcpAccounts) {
-    const selected = new Set(approvedAccounts);
-    const accounts = $('settings-mcp-accounts');
-    for (const entry of entries) {
-      const label = document.createElement('label');
-      label.className = 'settings-login-row';
-      const name = document.createElement('span');
-      name.textContent = entry.name;
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = entry.id;
-      checkbox.checked = selected.has(entry.id);
-      checkbox.disabled = !entry.id;
-      if (!entry.id) label.title = '此账号缺少稳定 ID，无法在 Codex 中授权';
-      label.append(name, checkbox);
-      accounts.append(label);
-    }
-  }
+  const readMcpSelection = showMcpAccounts ? mountMcpAccounts(approvedAccounts) : null;
 
   const loginToggle = $('settings-login-item');
   const loginStatus = $('settings-login-status');
@@ -493,9 +557,7 @@ async function openSettings(from) {
     try {
       const vaultChanged = await invoke('save_settings', {
         settings: { vault_path, theme: selectedTheme },
-        mcpAccountIds: showMcpAccounts
-          ? [...wrap.querySelectorAll('#settings-mcp-accounts input:checked')].map(input => input.value)
-          : null,
+        mcpAccountIds: readMcpSelection ? readMcpSelection() : null,
       });
       document.documentElement.setAttribute('data-theme-pref', selectedTheme);
       toast('设置已保存');
@@ -510,6 +572,8 @@ async function openSettings(from) {
     }
   });
 
+  $('view-add-title').textContent = '设置';
+  wrap.scrollTop = 0;
   showView('view-add');
 }
 
