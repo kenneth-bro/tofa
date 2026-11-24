@@ -130,4 +130,19 @@ mod tests {
         assert!(state.cache.with_passphrase(|_| ()).is_none());
         assert!(state.mcp_account_ids.is_empty());
     }
+
+    #[test]
+    fn approved_ids_survive_restart_and_follow_the_vault() {
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", home.path());
+        let vault = default_vault_path();
+        let ids: BTreeSet<String> = ["a".into(), "b".into()].into();
+        save_approved(&vault, &ids).unwrap();
+        // 模拟重启：重新构造状态，授权应还在，但口令缓存为空。
+        let state = AppState::new();
+        assert_eq!(state.mcp_account_ids, ids);
+        assert!(state.cache.with_passphrase(|_| ()).is_none());
+        // 其他保险库不沿用授权。
+        assert!(load_approved(std::path::Path::new("other.enc")).is_empty());
+    }
 }
