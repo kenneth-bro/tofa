@@ -33,13 +33,12 @@ impl AppState {
             .unwrap_or_else(default_vault_path);
         Self {
             cache: PassphraseCache::default(),
+            mcp_account_ids: load_approved(&vault_path),
             vault_path,
-            mcp_account_ids: BTreeSet::new(),
         }
     }
 
     pub fn unlock(&mut self, passphrase: String) {
-        self.mcp_account_ids.clear();
         self.cache.unlock(passphrase);
     }
 
@@ -48,9 +47,9 @@ impl AppState {
         if path == self.vault_path {
             return false;
         }
+        self.mcp_account_ids = load_approved(&path);
         self.vault_path = path;
         self.cache = PassphraseCache::default();
-        self.mcp_account_ids.clear();
         true
     }
 }
@@ -61,6 +60,35 @@ pub fn default_vault_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("tofa")
         .join("vault.enc")
+}
+
+// AI 授权的账号 ID 持久化到独立文件，只存 ID 和保险库路径，不含密钥。
+fn approved_path() -> PathBuf {
+    settings_path().with_file_name("tofa-ai-approved.json")
+}
+
+#[must_use]
+pub fn load_approved(vault: &std::path::Path) -> BTreeSet<String> {
+    let v: Option<serde_json::Value> = std::fs::read_to_string(approved_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    match v {
+        Some(v) if v["vault_path"].as_str().map(PathBuf::from).as_deref() == Some(vault) => v
+            ["account_ids"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        _ => BTreeSet::new(),
+    }
+}
+
+pub fn save_approved(vault: &std::path::Path, ids: &BTreeSet<String>) -> std::io::Result<()> {
+    let body = serde_json::json!({"vault_path": vault, "account_ids": ids});
+    let path = approved_path();
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&body)?)
 }
 
 #[must_use]

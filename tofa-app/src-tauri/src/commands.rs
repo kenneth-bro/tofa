@@ -394,6 +394,8 @@ pub fn save_settings(
     let changed = st.select_vault(new_vault);
     if let Some(approved) = approved {
         st.mcp_account_ids = approved;
+        crate::state::save_approved(&st.vault_path, &st.mcp_account_ids)
+            .map_err(|e| e.to_string())?;
     }
     drop(st);
     if changed {
@@ -441,6 +443,7 @@ pub async fn delete_entry(
     let mut state = state.lock().map_err(|e| e.to_string())?;
     if state.vault_path == deleted_from {
         state.mcp_account_ids.remove(&deleted_id);
+        let _ = crate::state::save_approved(&state.vault_path, &state.mcp_account_ids);
     }
     Ok(())
 }
