@@ -464,15 +464,15 @@ async function openSettings(from) {
   wrap.innerHTML = `
     ${showMcpAccounts ? `<section class="settings-section mcp-access" aria-labelledby="settings-mcp-title">
       <div class="mcp-access-heading">
-        <h2 id="settings-mcp-title">Codex 取码</h2>
+        <h2 id="settings-mcp-title">AI 授权</h2>
         <span id="settings-mcp-count" class="mcp-access-count" role="status"></span>
       </div>
-      <p class="mcp-access-caption">保存后生效，仅限本次解锁会话。</p>
+      <p class="mcp-access-caption">保存后生效，重启应用后仍保留；切换保险库时清空。</p>
       <div class="mcp-access-actions" role="group" aria-label="批量选择账号">
         <button id="settings-mcp-select-all" type="button" class="mcp-access-action" aria-controls="settings-mcp-accounts">全选</button>
         <button id="settings-mcp-invert" type="button" class="mcp-access-action" aria-controls="settings-mcp-accounts">反选</button>
       </div>
-      <div id="settings-mcp-accounts" class="mcp-access-list" role="group" aria-label="允许 Codex 取码的账号"></div>
+      <div id="settings-mcp-accounts" class="mcp-access-list" role="group" aria-label="允许 AI 取码的账号"></div>
     </section>` : ''}
     <div class="settings-section">
       <span class="settings-section-label">保险库路径</span>

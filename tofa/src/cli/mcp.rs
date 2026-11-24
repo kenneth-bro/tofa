@@ -11,7 +11,7 @@ use tofa_core::mcp_bridge::{self, Action, Operation, Reply, Request};
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct GetCodeRequest {
-    /// Exact TOFA account name or ID enabled for Codex in the unlocked desktop session.
+    /// Exact TOFA account name or ID authorized for AI in the TOFA CN desktop app.
     account: String,
 }
 

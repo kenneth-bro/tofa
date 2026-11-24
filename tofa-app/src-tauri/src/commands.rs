@@ -378,7 +378,7 @@ pub fn save_settings(
                         .unwrap_or(false)
                 });
                 if valid != Some(true) {
-                    return Err("请解锁保险库，并重新选择要授权给 Codex 的账号。".into());
+                    return Err("请解锁保险库，并重新选择要授权给 AI 的账号。".into());
                 }
                 Some(ids.into_iter().collect())
             }

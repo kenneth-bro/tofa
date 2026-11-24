@@ -43,7 +43,7 @@ fn handle_request(state: &AppState, request: Request) -> Result<Reply, &'static 
             if matches!(request.operation, Operation::GetCode { .. })
                 && state.mcp_account_ids.is_empty()
             {
-                return Err("在 TOFA CN 的设置中勾选本次会话允许 Codex 取码的账号并保存。");
+                return Err("在 TOFA CN 的设置中勾选允许 AI 取码的账号并保存。");
             }
             let vault = Vault::load(&state.vault_path, passphrase)
                 .map_err(|_| "无法读取当前 TOFA 保险库。")?;
